@@ -9,7 +9,7 @@
     Windows 8.1 / 7 SP1 with PowerShell updated).
 
     Usage from PowerShell:
-        irm https://raw.githubusercontent.com/Aetex/buddyxp/main/install.ps1 | iex
+        irm https://aetex.is-a.dev/buddyxp/install.ps1 | iex
 
     Or download and run locally:
         .\install.ps1

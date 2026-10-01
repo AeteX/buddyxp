@@ -3,7 +3,7 @@
 #  BuddyChat XP one-line installer for macOS and Linux.
 #
 #  Usage:
-#    curl -fsSL https://raw.githubusercontent.com/Aetex/buddyxp/main/install.sh | sh
+#    curl -fsSL https://aetex.is-a.dev/buddyxp/install.sh | sh
 #
 #  Or download and run locally:
 #    sh install.sh
