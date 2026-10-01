@@ -386,4 +386,4 @@ For security issues, please **do not** open a public issue. See
 
 ## License
 
-MIT © 2025 AeteX Interactive. See [LICENSE](LICENSE).
+MIT © 2025-2026 AeteX Interactive. See [LICENSE](LICENSE).
