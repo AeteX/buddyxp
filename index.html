@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BuddyChat XP</title>
+
+<link rel="icon" type="image/png" href="docs/favicon-96x96.png" sizes="96x96" />
+<link rel="icon" type="image/svg+xml" href="docs/favicon.svg" />
+<link rel="shortcut icon" href="docs/favicon.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="docs/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-title" content="BuddyXP" />
+<link rel="manifest" href="docs/site.webmanifest" />
+
+<link rel="stylesheet" href="xp.css">
+
+<script>
+if (!window.fetch || !window.AbortController || !window.ReadableStream || !window.TextDecoder) {
+  window.location.replace('legacy.html');
+}
+</script>
+</head>
+<body>
+
+<!-- === shared body markup === -->
+<div id="win">
+
+	<div id="titlebar">
+		<table width="100%" border="0" cellpadding="0" cellspacing="0">
+			<tr>
+				<td height="26" class="tbtext">
+					<img src="docs/favicon-16x16.png" width="16" height="16" alt="" class="tb-appicon">BuddyChat XP<span class="tb-sep"> &mdash; </span><span class="tb-byline">AeteX Interactive</span>
+				</td>
+				<td height="26" align="right" width="92">
+					<a href="#" class="tbtn" title="Minimize" onclick="alert('You can\'t minimize a website. :)\n\nBut nice try.'); return false;">_</a><a
+					   href="#" class="tbtn" title="Maximize" onclick="alert('It\'s already as big as it gets.\n\nTry your browser\'s fullscreen mode (F11).'); return false;"><span class="sq"></span></a><a
+					   href="#" class="tbtn tclose" title="Close" onclick="alert('This window belongs to your browser, not to BuddyChat XP.\n\nUse the real close button up there. ;)'); return false;">&times;</a>
+				</td>
+			</tr>
+		</table>
+	</div>
+
+	<div id="menubar">
+		<a href="#" onclick="XP.menuFile(); return false;">File</a><a href="#"
+		   onclick="XP.menuEdit(); return false;">Edit</a><a href="#"
+		   onclick="XP.menuView(); return false;">View</a><a href="#"
+		   onclick="clearChat(); return false;">Clear</a><a href="#"
+		   onclick="testConnection(); return false;">Connect</a><a href="#"
+		   onclick="XP.menuHelp(); return false;">Help</a>
+	</div>
+
+	<div id="toolbar">
+		<button type="button" class="tbar-btn" onclick="clearChat();" title="Start a new conversation">
+			<span class="tbar-dot blue"></span>New Chat
+		</button>
+		<span class="tbar-sep"></span>
+		<button type="button" class="tbar-btn" onclick="testConnection();" title="Ping the llama.cpp server">
+			<span class="tbar-dot green"></span>Test Connection
+		</button>
+		<span class="tbar-sep"></span>
+		<button type="button" class="tbar-btn" onclick="XP.showAbout();" title="About BuddyChat XP">
+			<span class="tbar-dot gold"></span>About
+		</button>
+		<span class="tbar-sep"></span>
+		<button type="button" class="tbar-btn" onclick="XP.menuHelp();" title="Keyboard shortcuts and quick start">
+			<span class="tbar-dot red"></span>Help
+		</button>
+	</div>
+
+	<div id="client">
+		<table width="100%" border="0" cellpadding="0" cellspacing="0">
+			<tr>
+				<td valign="top">
+					<div id="log"></div>
+					<div id="composer">
+						<table width="100%" border="0" cellpadding="0" cellspacing="0">
+							<tr>
+								<td valign="top">
+									<textarea id="input" rows="3" wrap="soft"
+									          onkeydown="return onKeyDown(event);"></textarea>
+								</td>
+								<td valign="top" width="86" align="right" style="padding-left:6px;">
+									<button type="button" id="sendbtn" class="xbtn" onclick="sendMessage();">Send</button><br>
+									<button type="button" id="stopbtn" class="xbtn" onclick="stopMessage();">Stop</button><br>
+									<button type="button" class="xbtn" onclick="clearChat();">Clear</button>
+								</td>
+							</tr>
+						</table>
+					</div>
+				</td>
+				<td valign="top" width="172" style="padding-left:8px;">
+					<div class="pane">
+						<div class="panehead">Connection</div>
+						<div class="panebody">
+							<span class="flabel">Server URL</span>
+							<input type="text" id="server" class="xinput" value="http://localhost:8080">
+							<button type="button" class="xbtn" style="width:60px; margin-top:5px;"
+							        onclick="testConnection();">Test</button>
+							<div class="hint">Model: <span id="modelinfo">&mdash;</span></div>
+						</div>
+					</div>
+					<div class="pane">
+						<div class="panehead">Generation</div>
+						<div class="panebody">
+							<span class="flabel">Temperature</span>
+							<input type="text" id="temp" class="xinput" value="0.7" size="6">
+							<div style="height:6px;"></div>
+							<span class="flabel">Max tokens</span>
+							<input type="text" id="maxtok" class="xinput" value="512" size="6">
+						</div>
+					</div>
+					<div class="pane">
+						<div class="panehead">System Prompt</div>
+						<div class="panebody">
+							<textarea id="sysprompt" class="xtarea" rows="5" wrap="soft"></textarea>
+							<div class="hint">Leave empty for no system message. Emoji are filtered from replies.</div>
+						</div>
+					</div>
+
+					<div class="productmark">
+						<span class="pm-powered">Powered by</span>
+						<span class="aetex-sigil"><span class="aetex-sigil-a">A</span>ete<span class="aetex-sigil-x">X</span></span>
+						<span class="pm-version">v0.1.0 &bull; Est. 2025</span>
+					</div>
+				</td>
+			</tr>
+		</table>
+	</div>
+
+	<div id="statusbar">
+		<table width="100%" border="0" cellpadding="0" cellspacing="0">
+			<tr>
+				<td class="statuscell" width="50%"><span id="status">Ready</span></td>
+				<td class="statuscell" width="25%">Model: <span id="modelinfo-status">&mdash;</span></td>
+				<td class="statuscell" width="25%" align="right">v0.1.0 &nbsp;|&nbsp; &copy; 2025 AeteX Interactive</td>
+			</tr>
+		</table>
+	</div>
+
+	<div id="about-overlay"></div>
+
+	<div id="about-dialog" class="about-dialog">
+		<div class="about-titlebar">
+			<table width="100%" border="0" cellpadding="0" cellspacing="0">
+				<tr>
+					<td class="about-titletext">About BuddyChat XP</td>
+					<td align="right" width="26">
+						<a href="#" class="tbtn tclose" onclick="XP.closeAbout(); return false;" title="Close">&times;</a>
+					</td>
+				</tr>
+			</table>
+		</div>
+		<div class="about-body">
+			<div class="about-brand">
+				<div class="aetex-mark"><span class="aetex-a">A</span>ete<span class="aetex-x">X</span></div>
+				<div class="aetex-interactive">INTERACTIVE</div>
+			</div>
+			<div class="about-product">
+				<div class="about-product-name">BuddyChat XP</div>
+				<div class="about-version">Version 0.1.0 &nbsp;&bull;&nbsp; Est. 2025</div>
+			</div>
+			<div class="about-divider"></div>
+			<div class="about-copyright">
+				Copyright &copy; 2025 AeteX Interactive.<br>
+				Released under the MIT License.
+			</div>
+			<div class="about-legal">
+				This program is free software released under the MIT License.
+				You are free to use, copy, modify, merge, publish, distribute,
+				sublicense, and/or sell copies, provided the copyright notice
+				and this permission notice are preserved in all copies.
+				<br><br>
+				THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+				EXPRESS OR IMPLIED.
+			</div>
+			<div class="about-license">
+				Licensed to:<br>
+				<strong>A Friend of AeteX</strong>
+			</div>
+			<div class="about-url">
+				<a href="https://aetex.is-a.dev" target="_blank" rel="noopener">aetex.is-a.dev</a>
+			</div>
+			<div class="about-ossnote">
+				Source code available on request.<br>
+				Bug reports and pull requests welcome.
+			</div>
+		</div>
+		<div class="about-buttons">
+			<button type="button" class="xbtn" onclick="XP.closeAbout();">OK</button>
+		</div>
+	</div>
+
+</div>
+
+<!-- === app script === -->
+<script src="xp-common.js"></script>
+<script>
+'use strict';
+
+var state = {
+	history: [],
+	busy: false,
+	controller: null,
+	curBody: null,
+	acc: ''
+};
+
+function processLine(line) {
+	line = line.replace(/\r$/, '');
+	if (line.indexOf('data:') !== 0) { return; }
+	var data = line.slice(5).trim();
+	if (!data || data === '[DONE]') { return; }
+
+	var obj;
+	try { obj = JSON.parse(data); } catch (e) { return; }
+
+	var delta = '';
+	var c = obj.choices && obj.choices[0];
+	if (c) {
+		if (c.delta && c.delta.content) { delta = c.delta.content; }
+		else if (c.text) { delta = c.text; }
+	}
+	if (!delta) { return; }
+
+	state.acc = XP.stripEmoji(state.acc + delta);
+	paintStream();
+}
+
+function paintStream() {
+	if (!state.curBody) { return; }
+	state.curBody.innerHTML = XP.nl2br(XP.esc(state.acc)) + '<span class="caret">_</span>';
+	var log = XP.$('log');
+	log.scrollTop = log.scrollHeight;
+}
+
+async function sendMessage() {
+	if (state.busy) { return; }
+
+	var ta = XP.$('input');
+	var text = ta.value;
+	if (!XP.trim(text)) { return; }
+	ta.value = '';
+	ta.focus();
+
+	XP.addMessage('log', 'user', text);
+	state.history.push({ role: 'user', content: text });
+
+	var msgs = [];
+	var sys = XP.trim(XP.$('sysprompt').value);
+	if (sys) { msgs.push({ role: 'system', content: sys }); }
+	msgs = msgs.concat(state.history);
+
+	var payload = {
+		messages: msgs,
+		stream: true,
+		temperature: XP.numOr(XP.$('temp').value, 0.7),
+		max_tokens: XP.intOr(XP.$('maxtok').value, 512)
+	};
+
+	state.busy = true;
+	state.acc = '';
+	state.curBody = XP.addMessage('log', 'bot', '');
+	paintStream();
+	XP.updateButtons('sendbtn', 'stopbtn', true);
+	XP.setStatusDot('status', 'Sending...', 'busy');
+	XP.saveSettings();
+
+	state.controller = new AbortController();
+	var finalText = '';
+	var isError = false;
+
+	try {
+		var res = await fetch(XP.getServer('server') + '/v1/chat/completions', {
+			method: 'POST',
+			headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+			body: JSON.stringify(payload),
+			signal: state.controller.signal
+		});
+
+		if (!res.ok) { throw new Error('HTTP ' + res.status); }
+
+		var reader = res.body.getReader();
+		var decoder = new TextDecoder();
+		var buf = '';
+
+		while (true) {
+			var chunk = await reader.read();
+			if (chunk.done) { break; }
+			buf += decoder.decode(chunk.value, { stream: true });
+			var idx;
+			while ((idx = buf.indexOf('\n')) !== -1) {
+				processLine(buf.slice(0, idx));
+				buf = buf.slice(idx + 1);
+			}
+		}
+		if (buf.length) { processLine(buf); }
+
+		finalText = XP.stripEmoji(state.acc);
+		XP.setStatusDot('status', 'Done.', 'ready');
+	} catch (err) {
+		if (err.name === 'AbortError') {
+			finalText = state.acc ? (XP.stripEmoji(state.acc) + ' [stopped]') : '[stopped]';
+			XP.setStatusDot('status', 'Stopped.', 'ready');
+		} else {
+			isError = true;
+			finalText = friendlyError(err);
+			XP.setStatusDot('status', 'Error.', 'error');
+		}
+	} finally {
+		state.busy = false;
+		state.controller = null;
+		XP.updateButtons('sendbtn', 'stopbtn', false);
+
+		if (state.curBody) {
+			state.curBody.innerHTML = isError
+				? '<span class="err">' + XP.nl2br(XP.esc(finalText)) + '</span>'
+				: XP.nl2br(XP.esc(finalText));
+			XP.$('log').scrollTop = XP.$('log').scrollHeight;
+		}
+		if (!isError && finalText && finalText.indexOf('[stopped]') === -1) {
+			state.history.push({ role: 'assistant', content: finalText });
+		}
+		state.curBody = null;
+		state.acc = '';
+	}
+}
+
+function friendlyError(err) {
+	var msg = String((err && err.message) || err);
+	if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
+		return 'Could not reach ' + XP.getServer('server') + '.\n\n' +
+			'Make sure llama-server is running, e.g.:\n' +
+			'    llama-server -m your-model.gguf --host 0.0.0.0 --port 8080\n\n' +
+			'If the page and the server are on different origins the server ' +
+			'must send CORS headers. Running the page from the same origin as ' +
+			'the server always works.';
+	}
+	return 'Request failed: ' + msg;
+}
+
+function stopMessage() {
+	if (state.controller) { state.controller.abort(); }
+}
+
+function clearChat() {
+	if (state.busy) { stopMessage(); }
+	state.history = [];
+	XP.$('log').innerHTML = '';
+	XP.addMessage('log', 'bot', 'Conversation cleared. Type a message below and press Enter.');
+	XP.setStatusDot('status', 'Ready.', 'ready');
+}
+
+async function testConnection() {
+	XP.setStatusDot('status', 'Connecting...', 'busy');
+	XP.$('modelinfo').textContent = 'checking...';
+	XP.$('modelinfo-status').textContent = 'checking...';
+	try {
+		var res = await fetch(XP.getServer('server') + '/v1/models');
+		if (!res.ok) { throw new Error('HTTP ' + res.status); }
+		var o = await res.json();
+		var name = (o && o.data && o.data[0] && o.data[0].id) || 'unknown';
+		XP.$('modelinfo').textContent = name;
+		XP.$('modelinfo-status').textContent = name;
+		XP.setStatusDot('status', 'Connected to ' + XP.getServer('server') + '.', 'ready');
+	} catch (e) {
+		XP.$('modelinfo').textContent = 'not connected';
+		XP.$('modelinfo-status').textContent = 'not connected';
+		XP.setStatusDot('status', 'Cannot reach ' + XP.getServer('server') + '.', 'error');
+	}
+}
+
+function onKeyDown(e) {
+	if (e.key === 'Enter' && !e.shiftKey) {
+		e.preventDefault();
+		sendMessage();
+	}
+}
+
+function init() {
+	XP.loadSettings();
+	XP.bindSettingsInputs();
+	XP.initAbout();
+	XP.$('server').addEventListener('change', testConnection);
+
+	XP.welcome();
+	XP.setStatusDot('status', 'Ready.', 'ready');
+	XP.updateButtons('sendbtn', 'stopbtn', false);
+	testConnection();
+	XP.$('input').focus();
+}
+
+if (document.readyState === 'loading') {
+	document.addEventListener('DOMContentLoaded', init);
+} else {
+	init();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,329 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>BuddyChat XP</title>
+
+<link rel="icon" type="image/png" href="docs/favicon-96x96.png" sizes="96x96" />
+<link rel="icon" type="image/svg+xml" href="docs/favicon.svg" />
+<link rel="shortcut icon" href="docs/favicon.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="docs/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-title" content="BuddyXP" />
+<link rel="manifest" href="docs/site.webmanifest" />
+
+<link rel="stylesheet" href="xp.css">
+
+<script>
+if (document.documentMode && document.documentMode < 10) {
+  window.location.replace('ie.html');
+}
+</script>
+</head>
+<body onload="init();">
+
+<!-- === same shared body markup as index.html === -->
+<div id="win">
+	<!-- ... paste the entire body block from section 3 here ... -->
+</div>
+
+<!-- === app script === -->
+<script src="xp-common.js"></script>
+<script>
+var chatHistory = [];
+var xhr = null;
+var busy = false;
+var streamBuf = '';
+var streamAcc = '';
+var curMsgEl = null;
+
+function handleLine(line) {
+	if (line.length && line.charAt(line.length - 1) === '\r') {
+		line = line.substring(0, line.length - 1);
+	}
+	if (line.substring(0, 5) !== 'data:') { return; }
+
+	var data = line.substring(5);
+	if (data.charAt(0) === ' ') { data = data.substring(1); }
+	if (!data || data === '[DONE]') { return; }
+
+	var obj = null;
+	try { obj = JSON.parse(data); } catch (e) { return; }
+	if (!obj) { return; }
+
+	var delta = '';
+	try {
+		if (obj.choices[0].delta && obj.choices[0].delta.content) {
+			delta = obj.choices[0].delta.content;
+		}
+	} catch (e) {}
+	if (!delta) {
+		try { delta = obj.choices[0].text; } catch (e) {}
+	}
+	if (!delta) { return; }
+
+	streamAcc = XP.stripEmoji(streamAcc + delta);
+	paintStream();
+}
+
+function pump(final) {
+	var idx;
+	while ((idx = streamBuf.indexOf('\n')) !== -1) {
+		handleLine(streamBuf.substring(0, idx));
+		streamBuf = streamBuf.substring(idx + 1);
+	}
+	if (final && streamBuf.length) {
+		handleLine(streamBuf);
+		streamBuf = '';
+	}
+}
+
+function paintStream() {
+	if (!curMsgEl) { return; }
+	curMsgEl.innerHTML = XP.nl2br(XP.esc(streamAcc)) + '<span class="caret">_</span>';
+	XP.$('log').scrollTop = XP.$('log').scrollHeight;
+}
+
+function sendMessage() {
+	if (busy) { return; }
+
+	var ta = XP.$('input');
+	var text = ta.value;
+	if (!XP.trim(text)) { return; }
+	ta.value = '';
+	ta.focus();
+
+	XP.addMessage('log', 'user', text);
+	chatHistory.push({ role: 'user', content: text });
+
+	var msgs = [];
+	var sys = XP.trim(XP.$('sysprompt').value);
+	if (sys) { msgs.push({ role: 'system', content: sys }); }
+	for (var i = 0; i < chatHistory.length; i++) { msgs.push(chatHistory[i]); }
+
+	var payload = {
+		messages: msgs,
+		stream: true,
+		temperature: XP.numOr(XP.$('temp').value, 0.7),
+		max_tokens: XP.intOr(XP.$('maxtok').value, 512)
+	};
+
+	busy = true;
+	streamBuf = '';
+	streamAcc = '';
+	curMsgEl = XP.addMessage('log', 'bot', '');
+	paintStream();
+	XP.updateButtons('sendbtn', 'stopbtn', true);
+	XP.setStatusDot('status', 'Sending...', 'busy');
+	XP.saveSettings();
+
+	var req = new XMLHttpRequest();
+	xhr = req;
+
+	try {
+		req.open('POST', XP.getServer('server') + '/v1/chat/completions', true);
+		req.setRequestHeader('Content-Type', 'text/plain;charset=UTF-8');
+	} catch (e) {
+		finishWithError('Could not open a connection to ' + XP.getServer('server') + '.');
+		return;
+	}
+
+	var seen = 0;
+
+	req.onreadystatechange = function () {
+		if (req.readyState !== 3 && req.readyState !== 4) { return; }
+		var full = '';
+		try { full = req.responseText || ''; } catch (e) { full = ''; }
+		if (full.length > seen) {
+			streamBuf += full.substring(seen);
+			seen = full.length;
+			pump(req.readyState === 4);
+			if (req.readyState === 3) { XP.setStatusDot('status', 'Receiving...', 'busy'); }
+		}
+		if (req.readyState === 4) { onDone(req); }
+	};
+
+	try { req.send(JSON.stringify(payload)); }
+	catch (e) { finishWithError('Could not send the request to ' + XP.getServer('server') + '.'); }
+}
+
+function onDone(req) {
+	if (!busy) { return; }
+	busy = false;
+	xhr = null;
+	XP.updateButtons('sendbtn', 'stopbtn', false);
+
+	var httpStatus = 0;
+	try { httpStatus = req.status; } catch (e) { httpStatus = 0; }
+
+	var full = '';
+	try { full = req.responseText || ''; } catch (e) { full = ''; }
+
+	var finalText = streamAcc;
+	var isError = false;
+
+	if (!finalText) {
+		var parsed = null;
+		try { parsed = JSON.parse(full); } catch (e) { parsed = null; }
+
+		if (parsed && parsed.error) {
+			finalText = parsed.error.message || 'The request failed.';
+			isError = true;
+		} else if (parsed && parsed.choices && parsed.choices[0]) {
+			var c0 = parsed.choices[0];
+			if (c0.message && c0.message.content) { finalText = c0.message.content; }
+			else if (c0.text) { finalText = c0.text; }
+		} else if (httpStatus === 0) {
+			finalText = 'The browser blocked the request, or the server did not respond.\n\n' +
+				'Most common causes:\n' +
+				'  - llama-server is not running on ' + XP.getServer('server') + '.\n' +
+				'  - The page and the server are on different origins and the ' +
+				'server is not sending CORS headers.\n\n' +
+				'Running the page from the same origin as the server always works.';
+			isError = true;
+		} else if (httpStatus !== 200) {
+			finalText = 'The server replied with HTTP ' + httpStatus + '.';
+			isError = true;
+		} else {
+			finalText = '(the server returned an empty response)';
+			isError = true;
+		}
+	}
+
+	if (!isError) { finalText = XP.stripEmoji(finalText); }
+
+	if (curMsgEl) {
+		curMsgEl.innerHTML = isError
+			? '<span class="err">' + XP.nl2br(XP.esc(finalText)) + '</span>'
+			: XP.nl2br(XP.esc(finalText));
+		XP.$('log').scrollTop = XP.$('log').scrollHeight;
+	}
+
+	if (!isError && finalText) {
+		chatHistory.push({ role: 'assistant', content: finalText });
+		XP.setStatusDot('status', 'Done.', 'ready');
+	} else {
+		XP.setStatusDot('status', 'Error.', 'error');
+	}
+	curMsgEl = null;
+	streamAcc = '';
+	streamBuf = '';
+}
+
+function finishWithError(msg) {
+	busy = false;
+	xhr = null;
+	XP.updateButtons('sendbtn', 'stopbtn', false);
+	if (curMsgEl) {
+		curMsgEl.innerHTML = '<span class="err">' + XP.esc(msg) + '</span>';
+		curMsgEl = null;
+	} else {
+		XP.addMessage('log', 'bot', msg);
+	}
+	XP.setStatusDot('status', 'Error.', 'error');
+}
+
+function stopMessage() {
+	if (!busy || !xhr) { return; }
+	var req = xhr;
+	busy = false;
+	xhr = null;
+	try { req.abort(); } catch (e) {}
+	if (curMsgEl) {
+		if (streamAcc) {
+			curMsgEl.innerHTML = XP.nl2br(XP.esc(streamAcc)) + ' <span class="err">[stopped]</span>';
+			chatHistory.push({ role: 'assistant', content: streamAcc });
+		} else {
+			curMsgEl.innerHTML = '<span class="err">[stopped]</span>';
+		}
+		curMsgEl = null;
+	}
+	streamAcc = '';
+	streamBuf = '';
+	XP.updateButtons('sendbtn', 'stopbtn', false);
+	XP.setStatusDot('status', 'Stopped.', 'ready');
+}
+
+function clearChat() {
+	if (busy) { stopMessage(); }
+	chatHistory = [];
+	XP.$('log').innerHTML = '';
+	XP.addMessage('log', 'bot', 'Conversation cleared. Type a message below and press Enter.');
+	XP.setStatusDot('status', 'Ready.', 'ready');
+}
+
+function testConnection() {
+	XP.setStatusDot('status', 'Connecting...', 'busy');
+	XP.$('modelinfo').innerHTML = 'checking...';
+	XP.$('modelinfo-status').innerHTML = 'checking...';
+
+	var req = new XMLHttpRequest();
+	try { req.open('GET', XP.getServer('server') + '/v1/models', true); }
+	catch (e) {
+		XP.$('modelinfo').innerHTML = 'bad URL';
+		XP.$('modelinfo-status').innerHTML = 'bad URL';
+		XP.setStatusDot('status', 'Error.', 'error');
+		return;
+	}
+
+	req.onreadystatechange = function () {
+		if (req.readyState !== 4) { return; }
+		var s = 0;
+		try { s = req.status; } catch (e) { s = 0; }
+		if (s === 200) {
+			var name = 'unknown';
+			try {
+				var o = JSON.parse(req.responseText);
+				if (o.data && o.data[0] && o.data[0].id) { name = o.data[0].id; }
+			} catch (e) {}
+			XP.$('modelinfo').innerHTML = XP.esc(name);
+			XP.$('modelinfo-status').innerHTML = XP.esc(name);
+			XP.setStatusDot('status', 'Connected to ' + XP.getServer('server') + '.', 'ready');
+		} else {
+			XP.$('modelinfo').innerHTML = 'not connected';
+			XP.$('modelinfo-status').innerHTML = 'not connected';
+			XP.setStatusDot('status', 'Cannot reach ' + XP.getServer('server') + '.', 'error');
+		}
+	};
+
+	try { req.send(null); }
+	catch (e) {
+		XP.$('modelinfo').innerHTML = 'not connected';
+		XP.$('modelinfo-status').innerHTML = 'not connected';
+		XP.setStatusDot('status', 'Cannot reach ' + XP.getServer('server') + '.', 'error');
+	}
+}
+
+function onKeyDown(e) {
+	e = e || window.event;
+	if (!e) { return true; }
+	if (e.keyCode === 13 && !e.shiftKey) {
+		if (e.preventDefault) { e.preventDefault(); }
+		e.returnValue = false;
+		sendMessage();
+		return false;
+	}
+	return true;
+}
+
+function init() {
+	if (typeof JSON === 'undefined') {
+		XP.$('log').innerHTML =
+			'<div class="msg bot"><span class="err">This page needs a browser with ' +
+			'JSON support: IE8+, Firefox 3, Chrome 4, Safari 4, Opera 10 or newer.</span></div>';
+		return;
+	}
+	XP.loadSettings();
+	XP.bindSettingsInputs();
+	XP.initAbout();
+	XP.$('server').onchange = function () { XP.saveSettings(); testConnection(); };
+
+	XP.welcome();
+	XP.setStatusDot('status', 'Ready.', 'ready');
+	XP.updateButtons('sendbtn', 'stopbtn', false);
+	testConnection();
+	XP.$('input').focus();
+}
+</script>
+</body>
+</html>
