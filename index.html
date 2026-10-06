@@ -4,16 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BuddyChat XP</title>
-
 <link rel="icon" type="image/png" href="docs/favicon-96x96.png" sizes="96x96" />
 <link rel="icon" type="image/svg+xml" href="docs/favicon.svg" />
 <link rel="shortcut icon" href="docs/favicon.ico" />
 <link rel="apple-touch-icon" sizes="180x180" href="docs/apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-title" content="BuddyXP" />
 <link rel="manifest" href="docs/site.webmanifest" />
-
 <link rel="stylesheet" href="xp.css">
-
 <script>
 if (!window.fetch || !window.AbortController || !window.ReadableStream || !window.TextDecoder) {
   window.location.replace('legacy.html');
@@ -22,9 +19,7 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 </head>
 <body>
 
-<!-- === shared body markup === -->
 <div id="win">
-
 	<div id="titlebar">
 		<table width="100%" border="0" cellpadding="0" cellspacing="0">
 			<tr>
@@ -50,11 +45,11 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 	</div>
 
 	<div id="toolbar">
-		<button type="button" class="tbar-btn" onclick="clearChat();" title="Start a new conversation">
+		<button type="button" class="tbar-btn" onclick="newChat();" title="Start a new conversation">
 			<span class="tbar-dot blue"></span>New Chat
 		</button>
 		<span class="tbar-sep"></span>
-		<button type="button" class="tbar-btn" onclick="testConnection();" title="Ping the llama.cpp server">
+		<button type="button" class="tbar-btn" onclick="testConnection();" title="Ping the model server">
 			<span class="tbar-dot green"></span>Test Connection
 		</button>
 		<span class="tbar-sep"></span>
@@ -88,17 +83,66 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 						</table>
 					</div>
 				</td>
-				<td valign="top" width="172" style="padding-left:8px;">
+				<td valign="top" width="190" style="padding-left:8px;">
+
 					<div class="pane">
 						<div class="panehead">Connection</div>
 						<div class="panebody">
-							<span class="flabel">Server URL</span>
-							<input type="text" id="server" class="xinput" value="http://localhost:8080">
+							<span class="flabel">Provider</span>
+							<select id="provider" class="xinput"></select>
+							<div class="field-gap"></div>
+
+							<div id="local-fields">
+								<span class="flabel">Server URL</span>
+								<input type="text" id="server" class="xinput" value="http://localhost:8080/v1">
+							</div>
+
+							<div id="online-fields" style="display:none;">
+								<span class="flabel">Endpoint</span>
+								<input type="text" id="endpoint" class="xinput" value="">
+								<div class="field-gap"></div>
+								<span class="flabel">API Key</span>
+								<input type="password" id="apikey" class="xinput" value="" autocomplete="off">
+								<div class="field-gap"></div>
+								<span class="flabel">Model</span>
+								<input type="text" id="model" class="xinput" value="">
+								<div class="hint warn" id="key-warning" style="display:none;">
+									Your API key is saved in this browser's local storage. Don't use a shared computer.
+								</div>
+							</div>
+
 							<button type="button" class="xbtn" style="width:60px; margin-top:5px;"
 							        onclick="testConnection();">Test</button>
 							<div class="hint">Model: <span id="modelinfo">&mdash;</span></div>
 						</div>
 					</div>
+
+					<div class="pane">
+						<div class="panehead">Buddy's Memory</div>
+						<div class="panebody">
+							<label class="mem-check">
+								<input type="checkbox" id="memory-enabled" checked>
+								Remember across chats
+							</label>
+							<div id="memory-list" class="xp-list" style="max-height:100px;"></div>
+							<div class="xp-minirow">
+								<button type="button" class="xbtn" onclick="rememberThisChat();">Remember this</button>
+								<button type="button" class="xbtn" onclick="forgetAll();">Forget all</button>
+							</div>
+						</div>
+					</div>
+
+					<div class="pane">
+						<div class="panehead">History</div>
+						<div class="panebody">
+							<div id="history-list" class="xp-list" style="max-height:120px;"></div>
+							<div class="xp-minirow">
+								<button type="button" class="xbtn" onclick="newChat();">New</button>
+								<button type="button" class="xbtn" onclick="deleteCurrentChat();">Delete</button>
+							</div>
+						</div>
+					</div>
+
 					<div class="pane">
 						<div class="panehead">Generation</div>
 						<div class="panebody">
@@ -109,6 +153,7 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 							<input type="text" id="maxtok" class="xinput" value="512" size="6">
 						</div>
 					</div>
+
 					<div class="pane">
 						<div class="panehead">System Prompt</div>
 						<div class="panebody">
@@ -122,6 +167,7 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 						<span class="aetex-sigil"><span class="aetex-sigil-a">A</span>ete<span class="aetex-sigil-x">X</span></span>
 						<span class="pm-version">v0.1.0 &bull; Est. 2025</span>
 					</div>
+
 				</td>
 			</tr>
 		</table>
@@ -132,7 +178,7 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 			<tr>
 				<td class="statuscell" width="50%"><span id="status">Ready</span></td>
 				<td class="statuscell" width="25%">Model: <span id="modelinfo-status">&mdash;</span></td>
-				<td class="statuscell" width="25%" align="right">v0.1.0 &nbsp;|&nbsp; &copy; 2025-2026 AeteX Interactive</td>
+				<td class="statuscell" width="25%" align="right">v0.1.0 &nbsp;|&nbsp; &copy; 2025 AeteX Interactive</td>
 			</tr>
 		</table>
 	</div>
@@ -161,7 +207,7 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 			</div>
 			<div class="about-divider"></div>
 			<div class="about-copyright">
-				Copyright &copy; 2025-2026 AeteX Interactive.<br>
+				Copyright &copy; 2025 AeteX Interactive.<br>
 				Released under the MIT License.
 			</div>
 			<div class="about-legal">
@@ -192,13 +238,12 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 
 </div>
 
-<!-- === app script === -->
 <script src="xp-common.js"></script>
 <script>
 'use strict';
 
 var state = {
-	history: [],
+	conv: null,
 	busy: false,
 	controller: null,
 	curBody: null,
@@ -233,8 +278,172 @@ function paintStream() {
 	log.scrollTop = log.scrollHeight;
 }
 
+function renderConversation() {
+	var log = XP.$('log');
+	log.innerHTML = '';
+	if (!state.conv || !state.conv.messages.length) {
+		var d = document.createElement('div');
+		d.className = 'msg bot';
+		d.innerHTML = '<div class="msghead"><span class="who bot">Buddy</span> <span class="time">' +
+			XP.timeNow() + '</span></div>' +
+			'<div class="msgbody">New conversation. Type a message below and press Enter.</div>';
+		log.appendChild(d);
+		return;
+	}
+	for (var i = 0; i < state.conv.messages.length; i++) {
+		XP.addMessage('log', state.conv.messages[i].role, state.conv.messages[i].content);
+	}
+	log.scrollTop = log.scrollHeight;
+}
+
+function persist() {
+	if (!state.conv) { return; }
+	var title = state.conv.title;
+	if (!title) {
+		for (var i = 0; i < state.conv.messages.length; i++) {
+			if (state.conv.messages[i].role === 'user') {
+				title = state.conv.messages[i].content.slice(0, 40);
+				if (state.conv.messages[i].content.length > 40) { title += '\u2026'; }
+				break;
+			}
+		}
+	}
+	XP.storage.update(state.conv.id, {
+		messages: state.conv.messages,
+		title: title || state.conv.title
+	});
+	state.conv.title = title;
+	XP.storage.setCurrent(state.conv.id);
+	refreshHistory();
+}
+
+function refreshHistory() {
+	XP.renderHistoryList('history-list', state.conv ? state.conv.id : null, loadChat);
+}
+
+function refreshMemory() {
+	XP.renderMemoryList('memory-list', function (id) {
+		XP.storage.memoryRemove(id);
+		refreshMemory();
+	});
+	var m = XP.storage.memory();
+	XP.$('memory-enabled').checked = m.enabled;
+}
+
+function loadChat(id) {
+	if (state.busy) { stopMessage(); }
+	var c = XP.storage.get(id);
+	if (!c) { return; }
+	state.conv = c;
+	XP.storage.setCurrent(id);
+	renderConversation();
+	refreshHistory();
+	XP.setStatusDot('status', 'Loaded conversation.', 'ready');
+}
+
+function newChat() {
+	if (state.busy) { stopMessage(); }
+	state.conv = XP.storage.create();
+	renderConversation();
+	refreshHistory();
+	XP.setStatusDot('status', 'New conversation.', 'ready');
+	XP.$('input').focus();
+}
+
+function deleteCurrentChat() {
+	if (!state.conv) { return; }
+	if (!confirm('Delete this conversation permanently?')) { return; }
+	XP.storage.remove(state.conv.id);
+	var list = XP.storage.list();
+	if (list.length) {
+		loadChat(list[0].id);
+	} else {
+		state.conv = XP.storage.create();
+		renderConversation();
+		refreshHistory();
+	}
+}
+
+function rememberThisChat() {
+	if (!state.conv || state.conv.messages.length < 2) {
+		alert('There is not enough conversation to learn from yet.');
+		return;
+	}
+	if (state.busy) {
+		alert('Please wait for the current reply to finish.');
+		return;
+	}
+
+	var prompt =
+		'Read the following conversation and extract durable facts about the USER ' +
+		'(not the assistant) that would be worth remembering across future conversations. ' +
+		'Examples of good facts: their name, where they live, what they do for work, ' +
+		'what they are learning, their preferences, ongoing projects. ' +
+		'Reply with ONLY a JSON array of short strings, each under 12 words. ' +
+		'Example: ["User lives in Berlin", "User is learning Python", "User prefers short answers"]. ' +
+		'If nothing is worth remembering, reply with []. Do not include a preamble or explanation.';
+
+	var transcript = '';
+	for (var i = 0; i < state.conv.messages.length; i++) {
+		var m = state.conv.messages[i];
+		transcript += (m.role === 'user' ? 'User: ' : 'Buddy: ') + m.content + '\n\n';
+	}
+
+	var payload = {
+		messages: [
+			{ role: 'system', content: prompt },
+			{ role: 'user',   content: transcript }
+		],
+		stream: false,
+		temperature: 0.2,
+		max_tokens: 400
+	};
+
+	XP.setStatusDot('status', 'Reading conversation...', 'busy');
+
+	fetch(XP.getEndpoint() + '/chat/completions', {
+		method: 'POST',
+		headers: XP.requestHeaders(),
+		body: JSON.stringify(payload)
+	})
+	.then(function (res) { return res.json(); })
+	.then(function (obj) {
+		var text = '';
+		try {
+			var c = obj.choices[0];
+			text = (c.message && c.message.content) || c.text || '';
+		} catch (e) {}
+
+		var facts = XP.parseFacts(text);
+		var added = 0;
+		for (var j = 0; j < facts.length; j++) {
+			if (XP.storage.memoryAdd(facts[j], 'auto')) { added++; }
+		}
+		refreshMemory();
+		if (added) {
+			XP.setStatusDot('status', 'Learned ' + added + ' new fact' + (added === 1 ? '' : 's') + '.', 'ready');
+		} else {
+			XP.setStatusDot('status', 'Nothing new to remember.', 'ready');
+		}
+	})
+	.catch(function (err) {
+		XP.setStatusDot('status', 'Could not extract memory.', 'error');
+		if (window.console && console.log) { console.log(err); }
+	});
+}
+
+function forgetAll() {
+	var m = XP.storage.memory();
+	if (!m.facts.length) { return; }
+	if (!confirm('Forget everything Buddy remembers about you?')) { return; }
+	XP.storage.memoryClear();
+	refreshMemory();
+	XP.setStatusDot('status', 'Memory cleared.', 'ready');
+}
+
 async function sendMessage() {
 	if (state.busy) { return; }
+	if (!state.conv) { state.conv = XP.storage.create(); }
 
 	var ta = XP.$('input');
 	var text = ta.value;
@@ -243,12 +452,17 @@ async function sendMessage() {
 	ta.focus();
 
 	XP.addMessage('log', 'user', text);
-	state.history.push({ role: 'user', content: text });
+	state.conv.messages.push({ role: 'user', content: text });
+	persist();
 
 	var msgs = [];
+	var preamble = XP.memoryPreamble();
 	var sys = XP.trim(XP.$('sysprompt').value);
-	if (sys) { msgs.push({ role: 'system', content: sys }); }
-	msgs = msgs.concat(state.history);
+	var combined = preamble + (preamble && sys ? '\n' : '') + sys;
+	if (combined) { msgs.push({ role: 'system', content: combined }); }
+	for (var i = 0; i < state.conv.messages.length; i++) {
+		msgs.push(state.conv.messages[i]);
+	}
 
 	var payload = {
 		messages: msgs,
@@ -256,6 +470,12 @@ async function sendMessage() {
 		temperature: XP.numOr(XP.$('temp').value, 0.7),
 		max_tokens: XP.intOr(XP.$('maxtok').value, 512)
 	};
+
+	/* Online providers may require a model name in the payload */
+	if (!XP.isLocal()) {
+		var m = XP.getModelName();
+		if (m) { payload.model = m; }
+	}
 
 	state.busy = true;
 	state.acc = '';
@@ -270,13 +490,12 @@ async function sendMessage() {
 	var isError = false;
 
 	try {
-		var res = await fetch(XP.getServer('server') + '/v1/chat/completions', {
+		var res = await fetch(XP.getEndpoint() + '/chat/completions', {
 			method: 'POST',
-			headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+			headers: XP.requestHeaders(),
 			body: JSON.stringify(payload),
 			signal: state.controller.signal
 		});
-
 		if (!res.ok) { throw new Error('HTTP ' + res.status); }
 
 		var reader = res.body.getReader();
@@ -318,7 +537,8 @@ async function sendMessage() {
 			XP.$('log').scrollTop = XP.$('log').scrollHeight;
 		}
 		if (!isError && finalText && finalText.indexOf('[stopped]') === -1) {
-			state.history.push({ role: 'assistant', content: finalText });
+			state.conv.messages.push({ role: 'assistant', content: finalText });
+			persist();
 		}
 		state.curBody = null;
 		state.acc = '';
@@ -327,13 +547,16 @@ async function sendMessage() {
 
 function friendlyError(err) {
 	var msg = String((err && err.message) || err);
+	var p = XP.getProvider();
 	if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
-		return 'Could not reach ' + XP.getServer('server') + '.\n\n' +
-			'Make sure llama-server is running, e.g.:\n' +
-			'    llama-server -m your-model.gguf --host 0.0.0.0 --port 8080\n\n' +
-			'If the page and the server are on different origins the server ' +
-			'must send CORS headers. Running the page from the same origin as ' +
-			'the server always works.';
+		if (p.id === 'local') {
+			return 'Could not reach ' + XP.getEndpoint() + '.\n\n' +
+				'Make sure llama serve is running, e.g.:\n' +
+				'    llama serve -hf prism-ml/Bonsai-8B-gguf:Q1_0';
+		}
+		return 'Could not reach ' + p.name + '.\n\n' +
+			'Check your API key and network connection. The endpoint is:\n' +
+			'    ' + XP.getEndpoint();
 	}
 	return 'Request failed: ' + msg;
 }
@@ -344,28 +567,47 @@ function stopMessage() {
 
 function clearChat() {
 	if (state.busy) { stopMessage(); }
-	state.history = [];
-	XP.$('log').innerHTML = '';
-	XP.addMessage('log', 'bot', 'Conversation cleared. Type a message below and press Enter.');
-	XP.setStatusDot('status', 'Ready.', 'ready');
+	if (!state.conv) { return; }
+	state.conv.messages = [];
+	persist();
+	renderConversation();
+	XP.setStatusDot('status', 'Conversation cleared.', 'ready');
 }
 
 async function testConnection() {
 	XP.setStatusDot('status', 'Connecting...', 'busy');
 	XP.$('modelinfo').textContent = 'checking...';
-	XP.$('modelinfo-status').textContent = 'checking...';
+	var mis = XP.$('modelinfo-status');
+	if (mis) { mis.textContent = 'checking...'; }
+
+	var p = XP.getProvider();
+	var url = XP.getEndpoint() + '/models';
+
 	try {
-		var res = await fetch(XP.getServer('server') + '/v1/models');
-		if (!res.ok) { throw new Error('HTTP ' + res.status); }
-		var o = await res.json();
-		var name = (o && o.data && o.data[0] && o.data[0].id) || 'unknown';
+		var res = await fetch(url, { headers: XP.requestHeaders() });
+		if (!res.ok) {
+			if (res.status === 401 || res.status === 403) {
+				throw new Error('Bad API key (HTTP ' + res.status + ')');
+			}
+			throw new Error('HTTP ' + res.status);
+		}
+
+		var name;
+		if (p.id === 'local') {
+			var o = await res.json();
+			name = (o && o.data && o.data[0] && o.data[0].id) || 'unknown';
+		} else {
+			name = XP.getModelName() || p.defaultModel || 'online model';
+		}
+
 		XP.$('modelinfo').textContent = name;
-		XP.$('modelinfo-status').textContent = name;
-		XP.setStatusDot('status', 'Connected to ' + XP.getServer('server') + '.', 'ready');
+		if (mis) { mis.textContent = name; }
+		XP.setStatusDot('status', 'Connected \u2014 ' + p.name + '.', 'ready');
 	} catch (e) {
+		var m = (e && e.message) || 'unreachable';
 		XP.$('modelinfo').textContent = 'not connected';
-		XP.$('modelinfo-status').textContent = 'not connected';
-		XP.setStatusDot('status', 'Cannot reach ' + XP.getServer('server') + '.', 'error');
+		if (mis) { mis.textContent = 'not connected'; }
+		XP.setStatusDot('status', p.name + ': ' + m, 'error');
 	}
 }
 
@@ -377,14 +619,34 @@ function onKeyDown(e) {
 }
 
 function init() {
+	XP.populateProviderDropdown(true);
 	XP.loadSettings();
 	XP.bindSettingsInputs();
 	XP.initAbout();
-	XP.$('server').addEventListener('change', testConnection);
 
-	XP.welcome();
-	XP.setStatusDot('status', 'Ready.', 'ready');
+	XP.$('provider').onchange = XP.onProviderChange;
+	XP.$('server').onchange   = function () { XP.saveSettings(); testConnection(); };
+	XP.$('endpoint').onchange = function () { XP.saveSettings(); testConnection(); };
+	XP.$('apikey').onchange   = function () { XP.saveSettings(); XP.syncProviderFields(); testConnection(); };
+	XP.$('model').onchange    = function () { XP.saveSettings(); testConnection(); };
+
+	var id = XP.storage.currentId();
+	var conv = id ? XP.storage.get(id) : null;
+	if (!conv) { conv = XP.storage.create(); }
+	state.conv = conv;
+
+	renderConversation();
+	refreshHistory();
+	refreshMemory();
+
+	XP.$('memory-enabled').onchange = function (e) {
+		e = e || window.event;
+		var target = e.target || e.srcElement;
+		XP.storage.memorySetEnabled(target.checked);
+	};
+
 	XP.updateButtons('sendbtn', 'stopbtn', false);
+	XP.setStatusDot('status', 'Ready.', 'ready');
 	testConnection();
 	XP.$('input').focus();
 }

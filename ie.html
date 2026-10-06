@@ -4,26 +4,28 @@
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <title>BuddyChat XP</title>
-
 <link rel="icon" type="image/png" href="docs/favicon-96x96.png" sizes="96x96" />
 <link rel="icon" type="image/svg+xml" href="docs/favicon.svg" />
 <link rel="shortcut icon" href="docs/favicon.ico" />
 <link rel="apple-touch-icon" sizes="180x180" href="docs/apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-title" content="BuddyXP" />
 <link rel="manifest" href="docs/site.webmanifest" />
-
 <link rel="stylesheet" href="xp.css">
-
 <script>
 if (window.fetch) { window.location.replace('index.html'); }
 
-/* IE8 polyfills - must run before xp-common.js */
 if (!window.console) { window.console = { log: function () {} }; }
+
 if (!window.JSON) {
   window.JSON = {
     parse: function (s) { return eval('(' + s + ')'); },
     stringify: function (o) {
       if (o === null || typeof o !== 'object') { return String(o); }
+      if (o instanceof Array) {
+        var arr = [];
+        for (var i = 0; i < o.length; i++) { arr.push(window.JSON.stringify(o[i])); }
+        return '[' + arr.join(',') + ']';
+      }
       var a = [];
       for (var k in o) {
         if (o.hasOwnProperty(k)) {
@@ -34,10 +36,25 @@ if (!window.JSON) {
     }
   };
 }
+
 if (!Array.prototype.indexOf) {
   Array.prototype.indexOf = function (o) {
     for (var i = 0; i < this.length; i++) { if (this[i] === o) { return i; } }
     return -1;
+  };
+}
+if (!Array.prototype.filter) {
+  Array.prototype.filter = function (fn, thisArg) {
+    var out = [];
+    for (var i = 0; i < this.length; i++) {
+      if (fn.call(thisArg, this[i], i, this)) { out.push(this[i]); }
+    }
+    return out;
+  };
+}
+if (!Array.prototype.forEach) {
+  Array.prototype.forEach = function (fn, thisArg) {
+    for (var i = 0; i < this.length; i++) { fn.call(thisArg, this[i], i, this); }
   };
 }
 if (!String.prototype.trim) {
@@ -47,19 +64,21 @@ if (!String.prototype.trim) {
 </head>
 <body onload="init();">
 
-<!-- === same shared body markup === -->
+<!-- BODY IS IDENTICAL TO index.html. Copy the entire <div id="win"> ... </div> block from there. -->
+
 <div id="win">
-	<!-- ... paste the entire body block from section 3 here ... -->
+	<!-- paste the entire #win block from index.html here -->
 </div>
 
-<!-- === app script === -->
 <script src="xp-common.js"></script>
 <script>
-var chatHistory = [];
-var xdr = null;
-var xhr = null;
-var busy = false;
-var curMsgEl = null;
+var state = {
+	conv: null,
+	busy: false,
+	xdr: null,
+	xhr: null,
+	curBody: null
+};
 
 function newXHR() {
 	if (window.XMLHttpRequest) { return new XMLHttpRequest(); }
@@ -75,8 +94,200 @@ function sameOrigin(url) {
 	       a.host === window.location.host;
 }
 
+function renderConversation() {
+	var log = XP.$('log');
+	log.innerHTML = '';
+	if (!state.conv || !state.conv.messages.length) {
+		var d = document.createElement('div');
+		d.className = 'msg bot';
+		d.innerHTML = '<div class="msghead"><span class="who bot">Buddy</span> <span class="time">' +
+			XP.timeNow() + '</span></div>' +
+			'<div class="msgbody">New conversation. Type a message below and press Enter.</div>';
+		log.appendChild(d);
+		return;
+	}
+	for (var i = 0; i < state.conv.messages.length; i++) {
+		XP.addMessage('log', state.conv.messages[i].role, state.conv.messages[i].content);
+	}
+	log.scrollTop = log.scrollHeight;
+}
+
+function persist() {
+	if (!state.conv) { return; }
+	var title = state.conv.title;
+	if (!title) {
+		for (var i = 0; i < state.conv.messages.length; i++) {
+			if (state.conv.messages[i].role === 'user') {
+				title = state.conv.messages[i].content.slice(0, 40);
+				if (state.conv.messages[i].content.length > 40) { title += '\u2026'; }
+				break;
+			}
+		}
+	}
+	XP.storage.update(state.conv.id, {
+		messages: state.conv.messages,
+		title: title || state.conv.title
+	});
+	state.conv.title = title;
+	XP.storage.setCurrent(state.conv.id);
+	refreshHistory();
+}
+
+function refreshHistory() {
+	XP.renderHistoryList('history-list', state.conv ? state.conv.id : null, loadChat);
+}
+
+function refreshMemory() {
+	XP.renderMemoryList('memory-list', function (id) {
+		XP.storage.memoryRemove(id);
+		refreshMemory();
+	});
+	var m = XP.storage.memory();
+	XP.$('memory-enabled').checked = m.enabled;
+}
+
+function loadChat(id) {
+	if (state.busy) { stopMessage(); }
+	var c = XP.storage.get(id);
+	if (!c) { return; }
+	state.conv = c;
+	XP.storage.setCurrent(id);
+	renderConversation();
+	refreshHistory();
+	XP.setStatusDot('status', 'Loaded conversation.', 'ready');
+}
+
+function newChat() {
+	if (state.busy) { stopMessage(); }
+	state.conv = XP.storage.create();
+	renderConversation();
+	refreshHistory();
+	XP.setStatusDot('status', 'New conversation.', 'ready');
+	XP.$('input').focus();
+}
+
+function deleteCurrentChat() {
+	if (!state.conv) { return; }
+	if (!confirm('Delete this conversation permanently?')) { return; }
+	XP.storage.remove(state.conv.id);
+	var list = XP.storage.list();
+	if (list.length) {
+		loadChat(list[0].id);
+	} else {
+		state.conv = XP.storage.create();
+		renderConversation();
+		refreshHistory();
+	}
+}
+
+function rememberThisChat() {
+	if (!state.conv || state.conv.messages.length < 2) {
+		alert('There is not enough conversation to learn from yet.');
+		return;
+	}
+	if (state.busy) {
+		alert('Please wait for the current reply to finish.');
+		return;
+	}
+
+	/* IE8 can't do authenticated cross-origin requests, so memory
+	   extraction only works against the local server. */
+	if (!XP.isLocal()) {
+		alert('Online providers are not supported in Internet Explorer 8/9.');
+		return;
+	}
+
+	var prompt =
+		'Read the following conversation and extract durable facts about the USER ' +
+		'(not the assistant) that would be worth remembering across future conversations. ' +
+		'Examples of good facts: their name, where they live, what they do for work, ' +
+		'what they are learning, their preferences, ongoing projects. ' +
+		'Reply with ONLY a JSON array of short strings, each under 12 words. ' +
+		'Example: ["User lives in Berlin", "User is learning Python", "User prefers short answers"]. ' +
+		'If nothing is worth remembering, reply with []. Do not include a preamble or explanation.';
+
+	var transcript = '';
+	for (var i = 0; i < state.conv.messages.length; i++) {
+		var m = state.conv.messages[i];
+		transcript += (m.role === 'user' ? 'User: ' : 'Buddy: ') + m.content + '\n\n';
+	}
+
+	var payload = {
+		messages: [
+			{ role: 'system', content: prompt },
+			{ role: 'user',   content: transcript }
+		],
+		stream: false,
+		temperature: 0.2,
+		max_tokens: 400
+	};
+
+	var url = XP.getEndpoint() + '/chat/completions';
+	var body = JSON.stringify(payload);
+	var crossOrigin = !sameOrigin(url);
+
+	XP.setStatusDot('status', 'Reading conversation...', 'busy');
+
+	function onSuccess(respText) {
+		var text = '';
+		try {
+			var obj = JSON.parse(respText);
+			var c = obj.choices[0];
+			text = (c.message && c.message.content) || c.text || '';
+		} catch (e) {}
+
+		var facts = XP.parseFacts(text);
+		var added = 0;
+		for (var j = 0; j < facts.length; j++) {
+			if (XP.storage.memoryAdd(facts[j], 'auto')) { added++; }
+		}
+		refreshMemory();
+		XP.setStatusDot('status',
+			added ? ('Learned ' + added + ' new fact' + (added === 1 ? '' : 's') + '.') : 'Nothing new to remember.',
+			'ready');
+	}
+
+	function onFail() {
+		XP.setStatusDot('status', 'Could not extract memory.', 'error');
+	}
+
+	if (crossOrigin && window.XDomainRequest) {
+		var x = new XDomainRequest();
+		x.open('POST', url);
+		x.timeout = 300000;
+		x.onload = function () { onSuccess(x.responseText); };
+		x.onerror = onFail;
+		x.ontimeout = onFail;
+		try { x.send(body); } catch (e) { onFail(); }
+	} else {
+		var req = newXHR();
+		if (!req) { onFail(); return; }
+		try { req.open('POST', url, true); }
+		catch (e) { onFail(); return; }
+		req.setRequestHeader('Content-Type', 'text/plain;charset=UTF-8');
+		req.onreadystatechange = function () {
+			if (req.readyState !== 4) { return; }
+			var s = 0;
+			try { s = req.status; } catch (e) { s = 0; }
+			if (s === 200) { onSuccess(req.responseText); }
+			else { onFail(); }
+		};
+		try { req.send(body); } catch (e) { onFail(); }
+	}
+}
+
+function forgetAll() {
+	var m = XP.storage.memory();
+	if (!m.facts.length) { return; }
+	if (!confirm('Forget everything Buddy remembers about you?')) { return; }
+	XP.storage.memoryClear();
+	refreshMemory();
+	XP.setStatusDot('status', 'Memory cleared.', 'ready');
+}
+
 function sendMessage() {
-	if (busy) { return; }
+	if (state.busy) { return; }
+	if (!state.conv) { state.conv = XP.storage.create(); }
 
 	var ta = XP.$('input');
 	var text = ta.value;
@@ -85,12 +296,15 @@ function sendMessage() {
 	ta.focus();
 
 	XP.addMessage('log', 'user', text);
-	chatHistory.push({ role: 'user', content: text });
+	state.conv.messages.push({ role: 'user', content: text });
+	persist();
 
 	var msgs = [];
+	var preamble = XP.memoryPreamble();
 	var sys = XP.trim(XP.$('sysprompt').value);
-	if (sys) { msgs.push({ role: 'system', content: sys }); }
-	for (var i = 0; i < chatHistory.length; i++) { msgs.push(chatHistory[i]); }
+	var combined = preamble + (preamble && sys ? '\n' : '') + sys;
+	if (combined) { msgs.push({ role: 'system', content: combined }); }
+	for (var i = 0; i < state.conv.messages.length; i++) { msgs.push(state.conv.messages[i]); }
 
 	var payload = {
 		messages: msgs,
@@ -100,34 +314,34 @@ function sendMessage() {
 	};
 
 	var body = JSON.stringify(payload);
-	var url = XP.getServer('server') + '/v1/chat/completions';
+	var url = XP.getEndpoint() + '/chat/completions';
 	var crossOrigin = !sameOrigin(url);
 
-	busy = true;
-	curMsgEl = XP.addMessage('log', 'bot', '');
-	curMsgEl.innerHTML = '<span class="caret">_</span>';
+	state.busy = true;
+	state.curBody = XP.addMessage('log', 'bot', '');
+	state.curBody.innerHTML = '<span class="caret">_</span>';
 	XP.updateButtons('sendbtn', 'stopbtn', true);
 	XP.setStatusDot('status', 'Sending...', 'busy');
 	XP.saveSettings();
 
 	if (crossOrigin && window.XDomainRequest) {
 		var x = new XDomainRequest();
-		xdr = x;
+		state.xdr = x;
 		x.open('POST', url);
 		x.timeout = 300000;
 		x.onload = function () {
-			if (!busy) { return; }
-			xdr = null;
+			if (!state.busy) { return; }
+			state.xdr = null;
 			handleFullResponse(x.responseText, 200);
 		};
 		x.onerror = function () {
-			if (!busy) { return; }
-			xdr = null;
+			if (!state.busy) { return; }
+			state.xdr = null;
 			handleFullResponse('', 0);
 		};
 		x.ontimeout = function () {
-			if (!busy) { return; }
-			xdr = null;
+			if (!state.busy) { return; }
+			state.xdr = null;
 			handleFullResponse('', -1);
 		};
 		try { x.send(body); }
@@ -135,7 +349,7 @@ function sendMessage() {
 	} else {
 		var req = newXHR();
 		if (!req) { handleFullResponse('', -5); return; }
-		xhr = req;
+		state.xhr = req;
 		try {
 			req.open('POST', url, true);
 			req.setRequestHeader('Content-Type', 'text/plain;charset=UTF-8');
@@ -148,7 +362,7 @@ function sendMessage() {
 			var s = 0, txt = '';
 			try { s = req.status; } catch (e) { s = 0; }
 			try { txt = req.responseText || ''; } catch (e) { txt = ''; }
-			xhr = null;
+			state.xhr = null;
 			handleFullResponse(txt, s);
 		};
 		try { req.send(body); }
@@ -157,23 +371,21 @@ function sendMessage() {
 }
 
 function handleFullResponse(rawText, httpStatus) {
-	if (!busy) { return; }
-	busy = false;
+	if (!state.busy) { return; }
+	state.busy = false;
 	XP.updateButtons('sendbtn', 'stopbtn', false);
 
 	var finalText = '';
 	var isError = false;
 
 	if (httpStatus < 0) {
-		finalText = 'The request could not be sent to ' + XP.getServer('server') + '.\n\n' +
-			'Make sure llama-server is running with --host 0.0.0.0 and that ' +
-			'this page is served from the same origin as the server.';
+		finalText = 'The request could not be sent to ' + XP.getEndpoint() + '.\n\n' +
+			'Make sure llama serve is running and that this page is served from ' +
+			'the same origin as the server.';
 		isError = true;
 	} else if (httpStatus === 0) {
-		finalText = 'Could not reach ' + XP.getServer('server') + '.\n\n' +
-			'The browser blocked the request, or the server is not running. ' +
-			'Serve this page from the same origin as the server, or make sure ' +
-			'the server sends CORS headers.';
+		finalText = 'Could not reach ' + XP.getEndpoint() + '.\n\n' +
+			'The browser blocked the request, or the server is not running.';
 		isError = true;
 	} else if (httpStatus !== 200) {
 		finalText = 'The server replied with HTTP ' + httpStatus + '.';
@@ -197,49 +409,52 @@ function handleFullResponse(rawText, httpStatus) {
 
 	if (!isError) { finalText = XP.stripEmoji(finalText); }
 
-	if (curMsgEl) {
-		curMsgEl.innerHTML = isError
+	if (state.curBody) {
+		state.curBody.innerHTML = isError
 			? '<span class="err">' + XP.nl2br(XP.esc(finalText)) + '</span>'
 			: XP.nl2br(XP.esc(finalText));
 		XP.$('log').scrollTop = XP.$('log').scrollHeight;
 	}
 
 	if (!isError && finalText) {
-		chatHistory.push({ role: 'assistant', content: finalText });
+		state.conv.messages.push({ role: 'assistant', content: finalText });
+		persist();
 		XP.setStatusDot('status', 'Done.', 'ready');
 	} else {
 		XP.setStatusDot('status', 'Error.', 'error');
 	}
-	curMsgEl = null;
+	state.curBody = null;
 }
 
 function stopMessage() {
-	if (!busy) { return; }
-	busy = false;
-	if (xdr) { try { xdr.abort(); } catch (e) {} xdr = null; }
-	if (xhr) { try { xhr.abort(); } catch (e) {} xhr = null; }
-	if (curMsgEl) {
-		curMsgEl.innerHTML = '<span class="err">[stopped]</span>';
-		curMsgEl = null;
+	if (!state.busy) { return; }
+	state.busy = false;
+	if (state.xdr) { try { state.xdr.abort(); } catch (e) {} state.xdr = null; }
+	if (state.xhr) { try { state.xhr.abort(); } catch (e) {} state.xhr = null; }
+	if (state.curBody) {
+		state.curBody.innerHTML = '<span class="err">[stopped]</span>';
+		state.curBody = null;
 	}
 	XP.updateButtons('sendbtn', 'stopbtn', false);
 	XP.setStatusDot('status', 'Stopped.', 'ready');
 }
 
 function clearChat() {
-	if (busy) { stopMessage(); }
-	chatHistory = [];
-	XP.$('log').innerHTML = '';
-	XP.addMessage('log', 'bot', 'Conversation cleared. Type a message below and press Enter.');
-	XP.setStatusDot('status', 'Ready.', 'ready');
+	if (state.busy) { stopMessage(); }
+	if (!state.conv) { return; }
+	state.conv.messages = [];
+	persist();
+	renderConversation();
+	XP.setStatusDot('status', 'Conversation cleared.', 'ready');
 }
 
 function testConnection() {
 	XP.setStatusDot('status', 'Connecting...', 'busy');
 	XP.$('modelinfo').innerHTML = 'checking...';
-	XP.$('modelinfo-status').innerHTML = 'checking...';
+	var mis = XP.$('modelinfo-status');
+	if (mis) { mis.innerHTML = 'checking...'; }
 
-	var url = XP.getServer('server') + '/v1/models';
+	var url = XP.getEndpoint() + '/models';
 	var crossOrigin = !sameOrigin(url);
 
 	if (crossOrigin && window.XDomainRequest) {
@@ -274,12 +489,14 @@ function applyModelInfo(txt, httpStatus) {
 			if (o.data && o.data[0] && o.data[0].id) { name = o.data[0].id; }
 		} catch (e) {}
 		XP.$('modelinfo').innerHTML = XP.esc(name);
-		XP.$('modelinfo-status').innerHTML = XP.esc(name);
-		XP.setStatusDot('status', 'Connected to ' + XP.getServer('server') + '.', 'ready');
+		var mis = XP.$('modelinfo-status');
+		if (mis) { mis.innerHTML = XP.esc(name); }
+		XP.setStatusDot('status', 'Connected.', 'ready');
 	} else {
 		XP.$('modelinfo').innerHTML = 'not connected';
-		XP.$('modelinfo-status').innerHTML = 'not connected';
-		XP.setStatusDot('status', 'Cannot reach ' + XP.getServer('server') + '.', 'error');
+		var mis2 = XP.$('modelinfo-status');
+		if (mis2) { mis2.innerHTML = 'not connected'; }
+		XP.setStatusDot('status', 'Cannot reach ' + XP.getEndpoint() + '.', 'error');
 	}
 }
 
@@ -296,21 +513,45 @@ function onKeyDown(e) {
 }
 
 function init() {
+	/* IE8/IE9 cannot do authenticated cross-origin requests, so online
+	   providers are hidden. Only Local appears in the dropdown. */
+	XP.populateProviderDropdown(false);
 	XP.loadSettings();
 	XP.bindSettingsInputs();
 	XP.initAbout();
-	XP.$('server').onchange = function () { XP.saveSettings(); testConnection(); };
 
-	XP.welcome(
-		'Note: replies appear all at once because Internet Explorer 8/9 ' +
-		'cannot stream HTTP responses.');
+	XP.$('provider').onchange = XP.onProviderChange;
+	XP.$('server').onchange   = function () { XP.saveSettings(); testConnection(); };
 
-	XP.setStatusDot('status', 'Ready.', 'ready');
+	/* Show a warning where the online fields would be */
+	var warn = XP.$('key-warning');
+	if (warn) {
+		warn.style.display = '';
+		warn.innerHTML = 'Online API providers are not available in Internet Explorer 8/9. ' +
+			'The browser cannot send authenticated cross-origin requests. ' +
+			'Use the modern page for online providers.';
+	}
+
+	var id = XP.storage.currentId();
+	var conv = id ? XP.storage.get(id) : null;
+	if (!conv) { conv = XP.storage.create(); }
+	state.conv = conv;
+
+	renderConversation();
+	refreshHistory();
+	refreshMemory();
+
+	XP.$('memory-enabled').onchange = function (e) {
+		e = e || window.event;
+		var target = e.target || e.srcElement;
+		XP.storage.memorySetEnabled(target.checked);
+	};
+
 	XP.updateButtons('sendbtn', 'stopbtn', false);
+	XP.setStatusDot('status', 'Ready.', 'ready');
 	testConnection();
 	XP.$('input').focus();
 }
 </script>
 </body>
-</html>grep -rn "1\.0\.2" . --exclude-dir=.git
-grep -rn "2007\.08\.14" . --exclude-dir=.git
+</html>

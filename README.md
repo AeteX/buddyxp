@@ -7,6 +7,9 @@ Three browser pipelines auto-detect your environment and route you to the one
 that works. The default persona is **Buddy**, a friendly 2007-era IM buddy who
 avoids emoji and talks like it is still AIM and MSN Messenger.
 
+Runs against a local `llama serve` instance or any hosted OpenAI-compatible
+API. Conversation history and cross-chat memory are built in.
+
 <p align="center">
   <img src="docs/screenshot-xp.png" alt="BuddyChat XP running in Internet Explorer on Windows XP" width="48%">
   &nbsp;
@@ -18,6 +21,7 @@ avoids emoji and talks like it is still AIM and MSN Messenger.
 </p>
 
 [**Live landing page**](https://aetex.is-a.dev/buddyxp) &nbsp;&bull;&nbsp;
+[**Watch the fake 2005 TV ad**](https://youtube.com/watch?v=) &nbsp;&bull;&nbsp;
 [**Report a bug**](https://github.com/Aetex/buddyxp/issues) &nbsp;&bull;&nbsp;
 [**MIT License**](LICENSE)
 
@@ -180,7 +184,8 @@ PowerShell, no `where`, no `timeout`. It searches the PATH and the usual
 
 Bonsai-8B is unusually friendly to old hardware. At 1.15 GB for the model
 itself, it runs on machines that would struggle with almost any other 8B
-model. If you're on something older still, try a smaller GGUF like Bonsai-4B, Bonsai-1.7B or any other GGUF from Hugging Face.
+model. If you're on something older still, try a smaller GGUF
+from Hugging Face.
 
 One thing to know: Python 2.7's built-in `SimpleHTTPServer` always binds to
 `0.0.0.0`, not localhost. While the launcher is running, other machines on
@@ -222,13 +227,184 @@ Common alternatives:
 
 | Server | Default URL | Start command |
 |---|---|---|
-| llama.cpp | `http://localhost:8080` | `llama serve -hf prism-ml/Bonsai-8B-gguf:Q1_0` |
-| Ollama | `http://localhost:11434` | `ollama serve` |
-| LM Studio | `http://localhost:1234` | GUI — enable the local server |
-| text-generation-webui | `http://localhost:5000` | `python server.py --api` |
+| llama.cpp | `http://localhost:8080/v1` | `llama serve -hf prism-ml/Bonsai-8B-gguf:Q1_0` |
+| Ollama | `http://localhost:11434/v1` | `ollama serve` |
+| LM Studio | `http://localhost:1234/v1` | GUI — enable the local server |
+| text-generation-webui | `http://localhost:5000/v1` | `python server.py --api` |
 
 For Ollama, use the URL `http://localhost:11434/v1` since Ollama nests its
 OpenAI-compatible endpoints under `/v1`.
+
+---
+
+## Online API providers
+
+BuddyChat XP can talk to hosted models in addition to a local llama.cpp
+server. Pick a provider from the **Provider** dropdown in the sidebar
+and the connection pane swaps to the right fields.
+
+### Supported providers
+
+| Provider | Endpoint | Default model |
+|---|---|---|
+| Local (llama.cpp) | `http://localhost:8080/v1` | (whatever llama serve loads) |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| Together | `https://api.together.xyz/v1` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| Mistral | `https://api.mistral.ai/v1` | `mistral-small-latest` |
+| Custom | (any URL) | (any model name) |
+
+The **Custom** option is for any OpenAI-compatible endpoint — self-hosted
+vLLM, LocalAI, a company gateway, a personal proxy, whatever. Enter the
+base URL (ending in `/v1` typically) and the model name.
+
+### How to use an online provider
+
+1. Pick the provider from the dropdown.
+2. The endpoint fills in automatically.
+3. Paste your API key into the **API Key** field.
+4. Set the model name in the **Model** field (each provider has a sensible
+   default already filled in).
+5. Click **Test** to verify the key works.
+6. Chat as normal.
+
+Your choice of provider, per-provider API keys, and per-provider model
+names are all saved separately. Switching between Local and OpenRouter
+keeps both configurations intact.
+
+### About your API keys
+
+API keys are stored in your browser's `localStorage` under the same
+settings key as everything else. **They are not encrypted.** Anyone with
+access to your browser profile or dev tools can read them.
+
+This is fine on a personal machine. It is not fine on a shared computer,
+a public kiosk, or a machine you don't fully control. The UI shows a
+red warning under the API Key field when an online provider is active.
+
+To remove a saved key, clear the field and blur it. The empty value
+overwrites the stored one.
+
+### Internet Explorer 8 and 9
+
+`ie.html` does not support online providers. IE8/IE9's `XDomainRequest`
+cannot send `Authorization` headers, so authenticated cross-origin
+requests are impossible without a proxy. The Provider dropdown in IE
+mode shows only **Local (llama.cpp)**.
+
+If you need online providers in IE, use the modern page. If you need
+the retro XP experience with online models, run `llama serve` locally
+and point BuddyChat XP at it — the model can be a small GGUF that
+you've downloaded from Hugging Face.
+
+### Cost and privacy
+
+Online providers charge per token. The **Buddy's Memory** feature adds a
+preamble to the system prompt on every request, and if you have a lot of
+facts stored that preamble can be long. With a 100-fact cap and each
+fact averaging 8 words, the preamble tops out around 800 tokens per
+message. On most providers that's fractions of a cent, but it's worth
+knowing.
+
+Everything else about BuddyChat XP stays local. Conversations and memory
+live in your browser's `localStorage`. Nothing is sent anywhere except
+the provider you've explicitly selected.
+
+---
+
+## Memory and history
+
+BuddyChat XP keeps track of your conversations and can remember facts
+about you across them.
+
+### Conversation history
+
+Every conversation is saved automatically to `localStorage` and listed
+in the **History** pane. Click any entry to load that conversation with
+its full message history. The most recent conversation loads
+automatically on page refresh.
+
+The most recent 100 conversations are kept. Older ones are dropped
+silently when the cap is reached. Each conversation is small (a few KB
+typically), so the whole history fits comfortably in the 5 MB
+`localStorage` budget.
+
+**New** starts a fresh conversation. **Delete** removes the current
+conversation permanently. There's no undo.
+
+### Buddy's Memory
+
+Buddy's Memory is a list of facts the model has learned about you. On
+every request, those facts are prepended to the system prompt. The
+model doesn't actually "remember" anything itself — it's context
+injection. But it produces the effect of an assistant that knows you
+across sessions, which is what most people want.
+
+**To teach Buddy a fact:**
+
+1. Have a conversation that mentions something worth remembering.
+2. Click **Remember this** in the Buddy's Memory pane.
+3. The app sends the transcript back to the model with a prompt asking
+   it to extract durable facts — names, locations, preferences,
+   ongoing projects, and so on.
+4. The extracted facts appear in the list within a second or two.
+
+**To remove a fact:** click the × next to it.
+
+**To clear everything:** click **Forget all**.
+
+**To turn memory off entirely:** uncheck **Remember across chats**. This
+preserves your facts but stops sending them to the model. Useful if
+you're switching to a provider you don't trust with personal context.
+
+### How facts are stored
+
+Each fact is a short string like "User lives in Berlin" or "User is
+learning Python". The app caps you at 100 facts and dedupes identical
+entries. When the cap is reached, the oldest facts get dropped.
+
+Facts are stored in `localStorage` under `buddyChatXp.memory.v1`,
+separate from conversations. Clearing conversation history doesn't
+touch memory, and vice versa.
+
+### What actually gets sent
+
+When memory is enabled and you send a message, the system prompt is
+constructed like this:
+
+```
+You remember the following things about this user from past conversations:
+- User lives in Berlin
+- User is learning Python
+- User prefers short answers
+
+Use them naturally if relevant. Do not list them back or announce that
+you remember them. If the user corrects a fact, drop it.
+
+[your normal system prompt follows]
+```
+
+Then your conversation history, then your new message. The model sees
+all of it and responds as if it remembers.
+
+### Privacy
+
+Everything is client-side. Facts live in your browser, not on a server.
+The only time they leave your machine is when the app sends them to the
+model — local llama.cpp or whichever online provider you've configured.
+
+If you use an online provider, your memory facts go to that provider on
+every message. If that's a problem, either disable memory or use a
+local model.
+
+### Working across providers
+
+Memory is provider-agnostic. You can teach Buddy facts while talking to
+a local model and they'll be sent to OpenAI next time you switch
+providers. The reverse also works. There's one shared memory list
+regardless of which model produced it.
 
 ---
 
@@ -247,6 +423,9 @@ BuddyChat XP only exposes temperature directly in the UI, so `0.5` is the
 easy value to set there. Top-p and top-k aren't sent by the client, so the
 server's defaults apply unless you change them in your `llama serve` command.
 
+For online providers, `0.7` is a fine default and most hosted models have
+sensible server-side defaults for the rest.
+
 ---
 
 ## Repository layout
@@ -255,9 +434,9 @@ server's defaults apply unless you change them in your `llama serve` command.
 |---|---|
 | `index.html` | Modern browsers. `fetch` + `ReadableStream` + `AbortController`. Streams replies. Auto-redirects if the modern pipeline is unavailable. |
 | `legacy.html` | Firefox 3.5+, Chrome 4+, Safari 4+, MyPal/Goanna, IE10/11. `XMLHttpRequest` with `Content-Type: text/plain` (no CORS preflight). Streams via `readyState === 3`. Auto-redirects IE8/9 to `ie.html`. |
-| `ie.html` | IE8 / IE9. Uses `XDomainRequest` for cross-origin POST. No streaming — the reply appears all at once. |
+| `ie.html` | IE8 / IE9. Uses `XDomainRequest` for cross-origin POST. No streaming — the reply appears all at once. Online providers are not available in this pipeline. |
 | `xp.css` | Shared XP Luna theme. IE8-safe: no flexbox, no grid, no CSS custom properties. |
-| `xp-common.js` | Shared helpers, emoji filter, settings persistence, About dialog, menu handlers. ES3-only syntax so IE8 can parse it. |
+| `xp-common.js` | Shared helpers, emoji filter, settings persistence, conversation history, memory storage, provider layer, About dialog, menu handlers. ES3-only syntax so IE8 can parse it. |
 | `launch-node.js` | Tiny static file server used as the Node fallback. Zero npm dependencies. |
 | `launch-python.py` | Static file server with explicit MIME types. Fixes the "webpage cannot be displayed" bug on XP machines where the `.html` registry entry is broken. |
 | `launch.sh` | Linux / macOS launcher. Detects OS and Linux distro, picks Python 3 → Python 2 → Node. |
@@ -286,15 +465,20 @@ one down if it can't do the job.
 | IE10 / IE11 | runs | runs | redirects → `index.html` |
 | IE8 / IE9 | redirects → `legacy.html` → `ie.html` | redirects → `ie.html` | runs |
 
-### No CORS preflight
+### No CORS preflight for local
 
-The chat request sends `Content-Type: text/plain;charset=UTF-8` instead of
-`application/json`. This is a CORS-safelisted content type, so the browser
-doesn't send an `OPTIONS` preflight first. llama.cpp parses the body as JSON
-regardless of the declared Content-Type, so the payload arrives intact.
+When talking to a local llama.cpp server, the chat request sends
+`Content-Type: text/plain;charset=UTF-8` instead of `application/json`.
+This is a CORS-safelisted content type, so the browser doesn't send an
+`OPTIONS` preflight first. llama.cpp parses the body as JSON regardless
+of the declared Content-Type, so the payload arrives intact.
 
 Without this, llama.cpp's server (which doesn't always answer preflights)
 silently fails the POST and `XMLHttpRequest.status` comes back as `0`.
+
+For online providers, standard `application/json` is used with an
+`Authorization: Bearer <key>` header. Those providers all handle CORS
+preflights correctly, so no workaround is needed.
 
 ### Emoji filter
 
@@ -313,9 +497,11 @@ pair split across two chunks is still caught correctly.
 
 ### Settings persistence
 
-Server URL, temperature, max tokens, and system prompt persist in
-`localStorage` under the key `buddyChatXp.settings.v1`. To reset, clear
-site data for the origin.
+Server URL, provider, per-provider API keys, per-provider models, temperature,
+max tokens, and system prompt persist in `localStorage` under the key
+`buddyChatXp.settings.v1`. Conversations and memory live under separate keys.
+
+To reset everything, clear site data for the origin.
 
 ---
 
@@ -323,8 +509,12 @@ site data for the origin.
 
 | Setting | Default | Notes |
 |---|---|---|
-| Server URL | `http://localhost:8080` | Point this at wherever `llama serve` is running |
-| Temperature | `0.7` | Bonsai-8B suggests `0.5`; see the model card |
+| Provider | Local (llama.cpp) | Dropdown in the sidebar |
+| Server URL | `http://localhost:8080/v1` | Used when Provider is Local |
+| Endpoint | (per provider) | Used when Provider is online |
+| API Key | (empty) | Stored per provider |
+| Model | (per provider) | Stored per provider |
+| Temperature | `0.7` | Bonsai-8B suggests `0.5`; most online providers suggest `0.7` |
 | Max tokens | `512` | Upper bound on reply length |
 | System prompt | Buddy persona | Edit or clear in the sidebar |
 
@@ -343,6 +533,8 @@ site data for the origin.
   chain will take you to `ie.html`.
 - **Test the installer on Linux** — a fresh `ubuntu:22.04` Docker container
   works. Run the one-liner, open a new shell, and type `buddyxp`.
+- **Test online providers** — pick Groq from the dropdown. It's free to
+  sign up and returns fast responses, so it's the easiest to verify with.
 
 ---
 
@@ -386,4 +578,4 @@ For security issues, please **do not** open a public issue. See
 
 ## License
 
-MIT © 2025-2026 AeteX Interactive. See [LICENSE](LICENSE).
+MIT © 2025 AeteX Interactive. See [LICENSE](LICENSE).

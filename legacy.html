@@ -4,16 +4,13 @@
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <title>BuddyChat XP</title>
-
 <link rel="icon" type="image/png" href="docs/favicon-96x96.png" sizes="96x96" />
 <link rel="icon" type="image/svg+xml" href="docs/favicon.svg" />
 <link rel="shortcut icon" href="docs/favicon.ico" />
 <link rel="apple-touch-icon" sizes="180x180" href="docs/apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-title" content="BuddyXP" />
 <link rel="manifest" href="docs/site.webmanifest" />
-
 <link rel="stylesheet" href="xp.css">
-
 <script>
 if (document.documentMode && document.documentMode < 10) {
   window.location.replace('ie.html');
@@ -22,70 +19,239 @@ if (document.documentMode && document.documentMode < 10) {
 </head>
 <body onload="init();">
 
-<!-- === same shared body markup as index.html === -->
+<!-- BODY IS IDENTICAL TO index.html. Copy the entire <div id="win"> ... </div> block from there. -->
+
 <div id="win">
-	<!-- ... paste the entire body block from section 3 here ... -->
+	<!-- paste the entire #win block from index.html here -->
 </div>
 
-<!-- === app script === -->
 <script src="xp-common.js"></script>
 <script>
-var chatHistory = [];
-var xhr = null;
-var busy = false;
-var streamBuf = '';
-var streamAcc = '';
-var curMsgEl = null;
+var state = {
+	conv: null,
+	busy: false,
+	xhr: null,
+	curBody: null,
+	acc: '',
+	buf: ''
+};
 
-function handleLine(line) {
+function paintStream() {
+	if (!state.curBody) { return; }
+	state.curBody.innerHTML = XP.nl2br(XP.esc(state.acc)) + '<span class="caret">_</span>';
+	XP.$('log').scrollTop = XP.$('log').scrollHeight;
+}
+
+function handleSseLine(line) {
 	if (line.length && line.charAt(line.length - 1) === '\r') {
 		line = line.substring(0, line.length - 1);
 	}
 	if (line.substring(0, 5) !== 'data:') { return; }
-
 	var data = line.substring(5);
 	if (data.charAt(0) === ' ') { data = data.substring(1); }
 	if (!data || data === '[DONE]') { return; }
 
 	var obj = null;
 	try { obj = JSON.parse(data); } catch (e) { return; }
-	if (!obj) { return; }
 
 	var delta = '';
 	try {
 		if (obj.choices[0].delta && obj.choices[0].delta.content) {
 			delta = obj.choices[0].delta.content;
+		} else if (obj.choices[0].text) {
+			delta = obj.choices[0].text;
 		}
 	} catch (e) {}
-	if (!delta) {
-		try { delta = obj.choices[0].text; } catch (e) {}
-	}
 	if (!delta) { return; }
 
-	streamAcc = XP.stripEmoji(streamAcc + delta);
+	state.acc = XP.stripEmoji(state.acc + delta);
 	paintStream();
 }
 
-function pump(final) {
+function streamAppend(chunk) {
+	state.buf += chunk;
 	var idx;
-	while ((idx = streamBuf.indexOf('\n')) !== -1) {
-		handleLine(streamBuf.substring(0, idx));
-		streamBuf = streamBuf.substring(idx + 1);
-	}
-	if (final && streamBuf.length) {
-		handleLine(streamBuf);
-		streamBuf = '';
+	while ((idx = state.buf.indexOf('\n')) !== -1) {
+		handleSseLine(state.buf.substring(0, idx));
+		state.buf = state.buf.substring(idx + 1);
 	}
 }
 
-function paintStream() {
-	if (!curMsgEl) { return; }
-	curMsgEl.innerHTML = XP.nl2br(XP.esc(streamAcc)) + '<span class="caret">_</span>';
-	XP.$('log').scrollTop = XP.$('log').scrollHeight;
+function renderConversation() {
+	var log = XP.$('log');
+	log.innerHTML = '';
+	if (!state.conv || !state.conv.messages.length) {
+		var d = document.createElement('div');
+		d.className = 'msg bot';
+		d.innerHTML = '<div class="msghead"><span class="who bot">Buddy</span> <span class="time">' +
+			XP.timeNow() + '</span></div>' +
+			'<div class="msgbody">New conversation. Type a message below and press Enter.</div>';
+		log.appendChild(d);
+		return;
+	}
+	for (var i = 0; i < state.conv.messages.length; i++) {
+		XP.addMessage('log', state.conv.messages[i].role, state.conv.messages[i].content);
+	}
+	log.scrollTop = log.scrollHeight;
+}
+
+function persist() {
+	if (!state.conv) { return; }
+	var title = state.conv.title;
+	if (!title) {
+		for (var i = 0; i < state.conv.messages.length; i++) {
+			if (state.conv.messages[i].role === 'user') {
+				title = state.conv.messages[i].content.slice(0, 40);
+				if (state.conv.messages[i].content.length > 40) { title += '\u2026'; }
+				break;
+			}
+		}
+	}
+	XP.storage.update(state.conv.id, {
+		messages: state.conv.messages,
+		title: title || state.conv.title
+	});
+	state.conv.title = title;
+	XP.storage.setCurrent(state.conv.id);
+	refreshHistory();
+}
+
+function refreshHistory() {
+	XP.renderHistoryList('history-list', state.conv ? state.conv.id : null, loadChat);
+}
+
+function refreshMemory() {
+	XP.renderMemoryList('memory-list', function (id) {
+		XP.storage.memoryRemove(id);
+		refreshMemory();
+	});
+	var m = XP.storage.memory();
+	XP.$('memory-enabled').checked = m.enabled;
+}
+
+function loadChat(id) {
+	if (state.busy) { stopMessage(); }
+	var c = XP.storage.get(id);
+	if (!c) { return; }
+	state.conv = c;
+	XP.storage.setCurrent(id);
+	renderConversation();
+	refreshHistory();
+	XP.setStatusDot('status', 'Loaded conversation.', 'ready');
+}
+
+function newChat() {
+	if (state.busy) { stopMessage(); }
+	state.conv = XP.storage.create();
+	renderConversation();
+	refreshHistory();
+	XP.setStatusDot('status', 'New conversation.', 'ready');
+	XP.$('input').focus();
+}
+
+function deleteCurrentChat() {
+	if (!state.conv) { return; }
+	if (!confirm('Delete this conversation permanently?')) { return; }
+	XP.storage.remove(state.conv.id);
+	var list = XP.storage.list();
+	if (list.length) {
+		loadChat(list[0].id);
+	} else {
+		state.conv = XP.storage.create();
+		renderConversation();
+		refreshHistory();
+	}
+}
+
+function rememberThisChat() {
+	if (!state.conv || state.conv.messages.length < 2) {
+		alert('There is not enough conversation to learn from yet.');
+		return;
+	}
+	if (state.busy) {
+		alert('Please wait for the current reply to finish.');
+		return;
+	}
+
+	var prompt =
+		'Read the following conversation and extract durable facts about the USER ' +
+		'(not the assistant) that would be worth remembering across future conversations. ' +
+		'Examples of good facts: their name, where they live, what they do for work, ' +
+		'what they are learning, their preferences, ongoing projects. ' +
+		'Reply with ONLY a JSON array of short strings, each under 12 words. ' +
+		'Example: ["User lives in Berlin", "User is learning Python", "User prefers short answers"]. ' +
+		'If nothing is worth remembering, reply with []. Do not include a preamble or explanation.';
+
+	var transcript = '';
+	for (var i = 0; i < state.conv.messages.length; i++) {
+		var m = state.conv.messages[i];
+		transcript += (m.role === 'user' ? 'User: ' : 'Buddy: ') + m.content + '\n\n';
+	}
+
+	var payload = {
+		messages: [
+			{ role: 'system', content: prompt },
+			{ role: 'user',   content: transcript }
+		],
+		stream: false,
+		temperature: 0.2,
+		max_tokens: 400
+	};
+
+	if (!XP.isLocal()) {
+		var mm = XP.getModelName();
+		if (mm) { payload.model = mm; }
+	}
+
+	XP.setStatusDot('status', 'Reading conversation...', 'busy');
+
+	var req = new XMLHttpRequest();
+	try { req.open('POST', XP.getEndpoint() + '/chat/completions', true); }
+	catch (e) { XP.setStatusDot('status', 'Bad endpoint.', 'error'); return; }
+
+	var h = XP.requestHeaders();
+	for (var k in h) {
+		if (h.hasOwnProperty(k)) {
+			try { req.setRequestHeader(k, h[k]); } catch (e) {}
+		}
+	}
+
+	req.onreadystatechange = function () {
+		if (req.readyState !== 4) { return; }
+		var text = '';
+		try {
+			var obj = JSON.parse(req.responseText);
+			var c = obj.choices[0];
+			text = (c.message && c.message.content) || c.text || '';
+		} catch (e) {}
+
+		var facts = XP.parseFacts(text);
+		var added = 0;
+		for (var j = 0; j < facts.length; j++) {
+			if (XP.storage.memoryAdd(facts[j], 'auto')) { added++; }
+		}
+		refreshMemory();
+		XP.setStatusDot('status',
+			added ? ('Learned ' + added + ' new fact' + (added === 1 ? '' : 's') + '.') : 'Nothing new to remember.',
+			'ready');
+	};
+
+	try { req.send(JSON.stringify(payload)); }
+	catch (e) { XP.setStatusDot('status', 'Could not extract memory.', 'error'); }
+}
+
+function forgetAll() {
+	var m = XP.storage.memory();
+	if (!m.facts.length) { return; }
+	if (!confirm('Forget everything Buddy remembers about you?')) { return; }
+	XP.storage.memoryClear();
+	refreshMemory();
+	XP.setStatusDot('status', 'Memory cleared.', 'ready');
 }
 
 function sendMessage() {
-	if (busy) { return; }
+	if (state.busy) { return; }
+	if (!state.conv) { state.conv = XP.storage.create(); }
 
 	var ta = XP.$('input');
 	var text = ta.value;
@@ -94,12 +260,15 @@ function sendMessage() {
 	ta.focus();
 
 	XP.addMessage('log', 'user', text);
-	chatHistory.push({ role: 'user', content: text });
+	state.conv.messages.push({ role: 'user', content: text });
+	persist();
 
 	var msgs = [];
+	var preamble = XP.memoryPreamble();
 	var sys = XP.trim(XP.$('sysprompt').value);
-	if (sys) { msgs.push({ role: 'system', content: sys }); }
-	for (var i = 0; i < chatHistory.length; i++) { msgs.push(chatHistory[i]); }
+	var combined = preamble + (preamble && sys ? '\n' : '') + sys;
+	if (combined) { msgs.push({ role: 'system', content: combined }); }
+	for (var i = 0; i < state.conv.messages.length; i++) { msgs.push(state.conv.messages[i]); }
 
 	var payload = {
 		messages: msgs,
@@ -108,190 +277,201 @@ function sendMessage() {
 		max_tokens: XP.intOr(XP.$('maxtok').value, 512)
 	};
 
-	busy = true;
-	streamBuf = '';
-	streamAcc = '';
-	curMsgEl = XP.addMessage('log', 'bot', '');
+	if (!XP.isLocal()) {
+		var mm = XP.getModelName();
+		if (mm) { payload.model = mm; }
+	}
+
+	state.busy = true;
+	state.acc = '';
+	state.buf = '';
+	state.curBody = XP.addMessage('log', 'bot', '');
 	paintStream();
 	XP.updateButtons('sendbtn', 'stopbtn', true);
 	XP.setStatusDot('status', 'Sending...', 'busy');
 	XP.saveSettings();
 
 	var req = new XMLHttpRequest();
-	xhr = req;
+	state.xhr = req;
 
 	try {
-		req.open('POST', XP.getServer('server') + '/v1/chat/completions', true);
-		req.setRequestHeader('Content-Type', 'text/plain;charset=UTF-8');
+		req.open('POST', XP.getEndpoint() + '/chat/completions', true);
 	} catch (e) {
-		finishWithError('Could not open a connection to ' + XP.getServer('server') + '.');
+		finishWithError('Could not open a connection.');
 		return;
 	}
 
-	var seen = 0;
+	var h = XP.requestHeaders();
+	for (var k in h) {
+		if (h.hasOwnProperty(k)) {
+			try { req.setRequestHeader(k, h[k]); } catch (e) {}
+		}
+	}
 
+	var seen = 0;
 	req.onreadystatechange = function () {
 		if (req.readyState !== 3 && req.readyState !== 4) { return; }
 		var full = '';
 		try { full = req.responseText || ''; } catch (e) { full = ''; }
 		if (full.length > seen) {
-			streamBuf += full.substring(seen);
+			streamAppend(full.substring(seen));
 			seen = full.length;
-			pump(req.readyState === 4);
 			if (req.readyState === 3) { XP.setStatusDot('status', 'Receiving...', 'busy'); }
 		}
 		if (req.readyState === 4) { onDone(req); }
 	};
 
 	try { req.send(JSON.stringify(payload)); }
-	catch (e) { finishWithError('Could not send the request to ' + XP.getServer('server') + '.'); }
+	catch (e) { finishWithError('Could not send the request.'); }
 }
 
 function onDone(req) {
-	if (!busy) { return; }
-	busy = false;
-	xhr = null;
+	if (!state.busy) { return; }
+	state.busy = false;
+	state.xhr = null;
 	XP.updateButtons('sendbtn', 'stopbtn', false);
 
 	var httpStatus = 0;
 	try { httpStatus = req.status; } catch (e) { httpStatus = 0; }
 
-	var full = '';
-	try { full = req.responseText || ''; } catch (e) { full = ''; }
-
-	var finalText = streamAcc;
+	var finalText = state.acc;
 	var isError = false;
 
 	if (!finalText) {
+		var full = '';
+		try { full = req.responseText || ''; } catch (e) {}
 		var parsed = null;
-		try { parsed = JSON.parse(full); } catch (e) { parsed = null; }
-
-		if (parsed && parsed.error) {
-			finalText = parsed.error.message || 'The request failed.';
-			isError = true;
-		} else if (parsed && parsed.choices && parsed.choices[0]) {
+		try { parsed = JSON.parse(full); } catch (e) {}
+		if (parsed && parsed.choices && parsed.choices[0]) {
 			var c0 = parsed.choices[0];
-			if (c0.message && c0.message.content) { finalText = c0.message.content; }
-			else if (c0.text) { finalText = c0.text; }
-		} else if (httpStatus === 0) {
-			finalText = 'The browser blocked the request, or the server did not respond.\n\n' +
-				'Most common causes:\n' +
-				'  - llama-server is not running on ' + XP.getServer('server') + '.\n' +
-				'  - The page and the server are on different origins and the ' +
-				'server is not sending CORS headers.\n\n' +
-				'Running the page from the same origin as the server always works.';
+			finalText = (c0.message && c0.message.content) || c0.text || '';
+		}
+		if (!finalText) {
 			isError = true;
-		} else if (httpStatus !== 200) {
-			finalText = 'The server replied with HTTP ' + httpStatus + '.';
-			isError = true;
-		} else {
-			finalText = '(the server returned an empty response)';
-			isError = true;
+			finalText = (httpStatus === 0)
+				? 'Could not reach ' + XP.getEndpoint() + '.'
+				: 'The server replied with HTTP ' + httpStatus + '.';
 		}
 	}
 
 	if (!isError) { finalText = XP.stripEmoji(finalText); }
 
-	if (curMsgEl) {
-		curMsgEl.innerHTML = isError
+	if (state.curBody) {
+		state.curBody.innerHTML = isError
 			? '<span class="err">' + XP.nl2br(XP.esc(finalText)) + '</span>'
 			: XP.nl2br(XP.esc(finalText));
 		XP.$('log').scrollTop = XP.$('log').scrollHeight;
 	}
 
 	if (!isError && finalText) {
-		chatHistory.push({ role: 'assistant', content: finalText });
+		state.conv.messages.push({ role: 'assistant', content: finalText });
+		persist();
 		XP.setStatusDot('status', 'Done.', 'ready');
 	} else {
 		XP.setStatusDot('status', 'Error.', 'error');
 	}
-	curMsgEl = null;
-	streamAcc = '';
-	streamBuf = '';
+	state.curBody = null;
+	state.acc = '';
+	state.buf = '';
 }
 
 function finishWithError(msg) {
-	busy = false;
-	xhr = null;
+	state.busy = false;
+	state.xhr = null;
 	XP.updateButtons('sendbtn', 'stopbtn', false);
-	if (curMsgEl) {
-		curMsgEl.innerHTML = '<span class="err">' + XP.esc(msg) + '</span>';
-		curMsgEl = null;
-	} else {
-		XP.addMessage('log', 'bot', msg);
+	if (state.curBody) {
+		state.curBody.innerHTML = '<span class="err">' + XP.esc(msg) + '</span>';
+		state.curBody = null;
 	}
 	XP.setStatusDot('status', 'Error.', 'error');
 }
 
 function stopMessage() {
-	if (!busy || !xhr) { return; }
-	var req = xhr;
-	busy = false;
-	xhr = null;
-	try { req.abort(); } catch (e) {}
-	if (curMsgEl) {
-		if (streamAcc) {
-			curMsgEl.innerHTML = XP.nl2br(XP.esc(streamAcc)) + ' <span class="err">[stopped]</span>';
-			chatHistory.push({ role: 'assistant', content: streamAcc });
+	if (!state.busy || !state.xhr) { return; }
+	var r = state.xhr;
+	state.busy = false;
+	state.xhr = null;
+	try { r.abort(); } catch (e) {}
+	if (state.curBody) {
+		if (state.acc) {
+			state.curBody.innerHTML = XP.nl2br(XP.esc(state.acc)) + ' <span class="err">[stopped]</span>';
+			state.conv.messages.push({ role: 'assistant', content: state.acc });
+			persist();
 		} else {
-			curMsgEl.innerHTML = '<span class="err">[stopped]</span>';
+			state.curBody.innerHTML = '<span class="err">[stopped]</span>';
 		}
-		curMsgEl = null;
+		state.curBody = null;
 	}
-	streamAcc = '';
-	streamBuf = '';
+	state.acc = '';
+	state.buf = '';
 	XP.updateButtons('sendbtn', 'stopbtn', false);
 	XP.setStatusDot('status', 'Stopped.', 'ready');
 }
 
 function clearChat() {
-	if (busy) { stopMessage(); }
-	chatHistory = [];
-	XP.$('log').innerHTML = '';
-	XP.addMessage('log', 'bot', 'Conversation cleared. Type a message below and press Enter.');
-	XP.setStatusDot('status', 'Ready.', 'ready');
+	if (state.busy) { stopMessage(); }
+	if (!state.conv) { return; }
+	state.conv.messages = [];
+	persist();
+	renderConversation();
+	XP.setStatusDot('status', 'Conversation cleared.', 'ready');
 }
 
 function testConnection() {
 	XP.setStatusDot('status', 'Connecting...', 'busy');
 	XP.$('modelinfo').innerHTML = 'checking...';
-	XP.$('modelinfo-status').innerHTML = 'checking...';
+	var mis = XP.$('modelinfo-status');
+	if (mis) { mis.innerHTML = 'checking...'; }
+
+	var p = XP.getProvider();
+	var url = XP.getEndpoint() + '/models';
+	var headers = XP.requestHeaders();
 
 	var req = new XMLHttpRequest();
-	try { req.open('GET', XP.getServer('server') + '/v1/models', true); }
+	try { req.open('GET', url, true); }
 	catch (e) {
 		XP.$('modelinfo').innerHTML = 'bad URL';
-		XP.$('modelinfo-status').innerHTML = 'bad URL';
-		XP.setStatusDot('status', 'Error.', 'error');
+		XP.setStatusDot('status', 'Bad URL.', 'error');
 		return;
+	}
+
+	for (var h in headers) {
+		if (headers.hasOwnProperty(h)) {
+			try { req.setRequestHeader(h, headers[h]); } catch (e) {}
+		}
 	}
 
 	req.onreadystatechange = function () {
 		if (req.readyState !== 4) { return; }
 		var s = 0;
 		try { s = req.status; } catch (e) { s = 0; }
+
+		var name = 'unknown';
 		if (s === 200) {
-			var name = 'unknown';
-			try {
-				var o = JSON.parse(req.responseText);
-				if (o.data && o.data[0] && o.data[0].id) { name = o.data[0].id; }
-			} catch (e) {}
+			if (p.id === 'local') {
+				try {
+					var o = JSON.parse(req.responseText);
+					if (o.data && o.data[0] && o.data[0].id) { name = o.data[0].id; }
+				} catch (e) {}
+			} else {
+				name = XP.getModelName() || p.defaultModel || 'online model';
+			}
 			XP.$('modelinfo').innerHTML = XP.esc(name);
-			XP.$('modelinfo-status').innerHTML = XP.esc(name);
-			XP.setStatusDot('status', 'Connected to ' + XP.getServer('server') + '.', 'ready');
+			if (mis) { mis.innerHTML = XP.esc(name); }
+			XP.setStatusDot('status', 'Connected \u2014 ' + p.name + '.', 'ready');
+		} else if (s === 401 || s === 403) {
+			XP.$('modelinfo').innerHTML = 'bad key';
+			if (mis) { mis.innerHTML = 'bad key'; }
+			XP.setStatusDot('status', p.name + ': bad API key.', 'error');
 		} else {
 			XP.$('modelinfo').innerHTML = 'not connected';
-			XP.$('modelinfo-status').innerHTML = 'not connected';
-			XP.setStatusDot('status', 'Cannot reach ' + XP.getServer('server') + '.', 'error');
+			if (mis) { mis.innerHTML = 'not connected'; }
+			XP.setStatusDot('status', p.name + ': cannot connect.', 'error');
 		}
 	};
 
 	try { req.send(null); }
-	catch (e) {
-		XP.$('modelinfo').innerHTML = 'not connected';
-		XP.$('modelinfo-status').innerHTML = 'not connected';
-		XP.setStatusDot('status', 'Cannot reach ' + XP.getServer('server') + '.', 'error');
-	}
+	catch (e) { XP.setStatusDot('status', 'Connection failed.', 'error'); }
 }
 
 function onKeyDown(e) {
@@ -313,14 +493,35 @@ function init() {
 			'JSON support: IE8+, Firefox 3, Chrome 4, Safari 4, Opera 10 or newer.</span></div>';
 		return;
 	}
+
+	XP.populateProviderDropdown(true);
 	XP.loadSettings();
 	XP.bindSettingsInputs();
 	XP.initAbout();
-	XP.$('server').onchange = function () { XP.saveSettings(); testConnection(); };
 
-	XP.welcome();
-	XP.setStatusDot('status', 'Ready.', 'ready');
+	XP.$('provider').onchange = XP.onProviderChange;
+	XP.$('server').onchange   = function () { XP.saveSettings(); testConnection(); };
+	XP.$('endpoint').onchange = function () { XP.saveSettings(); testConnection(); };
+	XP.$('apikey').onchange   = function () { XP.saveSettings(); XP.syncProviderFields(); testConnection(); };
+	XP.$('model').onchange    = function () { XP.saveSettings(); testConnection(); };
+
+	var id = XP.storage.currentId();
+	var conv = id ? XP.storage.get(id) : null;
+	if (!conv) { conv = XP.storage.create(); }
+	state.conv = conv;
+
+	renderConversation();
+	refreshHistory();
+	refreshMemory();
+
+	XP.$('memory-enabled').onchange = function (e) {
+		e = e || window.event;
+		var target = e.target || e.srcElement;
+		XP.storage.memorySetEnabled(target.checked);
+	};
+
 	XP.updateButtons('sendbtn', 'stopbtn', false);
+	XP.setStatusDot('status', 'Ready.', 'ready');
 	testConnection();
 	XP.$('input').focus();
 }
