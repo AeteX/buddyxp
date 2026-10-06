@@ -20,8 +20,8 @@ API. Conversation history and cross-chat memory are built in.
   <em>Left: the <code>ie.html</code> pipeline in IE8 on Windows XP. Right: the <code>index.html</code> pipeline in a modern browser.</em>
 </p>
 
-[**Live landing page**](https://aetex.is-a.dev/buddyxp) &nbsp;&bull;&nbsp;
-[**Watch the fake 2005 TV ad**](https://youtube.com/watch?v=) &nbsp;&bull;&nbsp;
+[**Documentation page**](https://aetex.is-a.dev/buddyxp) &nbsp;&bull;&nbsp;
+[**Watch the 2005 style TV ad**](https://youtube.com/watch?v=) &nbsp;&bull;&nbsp;
 [**Report a bug**](https://github.com/Aetex/buddyxp/issues) &nbsp;&bull;&nbsp;
 [**MIT License**](LICENSE)
 
