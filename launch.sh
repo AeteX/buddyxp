@@ -266,7 +266,7 @@ if [ -z "$VERSION" ]; then
 
   echo ""
   echo "  ============================================================"
-  echo "    BuddyChat XP  v0.1.0"
+  echo "    BuddyChat XP  v0.1.2"
   echo "    AeteX Interactive   Est. 2026   -   https://aetex.is-a.dev"
   echo "  ============================================================"
   echo ""
@@ -337,7 +337,7 @@ URL="http://${HOST}:${PORT}${URL_PATH}"
 
 echo ""
 echo "  ============================================================"
-echo "    BuddyChat XP  v0.1.0  -  starting up"
+echo "    BuddyChat XP  v0.1.2  -  starting up"
 echo "  ============================================================"
 echo ""
 echo "    OS:        $OS_NAME"

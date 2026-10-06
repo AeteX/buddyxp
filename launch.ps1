@@ -197,7 +197,7 @@ if (-not $Version) {
 
     Write-Host ""
     Write-Host "  ============================================================" -ForegroundColor White
-    Write-Host "    BuddyChat XP  v0.1.0" -ForegroundColor White
+    Write-Host "    BuddyChat XP  v0.1.2" -ForegroundColor White
     Write-Host "    AeteX Interactive   Est. 2026   -   https://aetex.is-a.dev" -ForegroundColor Gray
     Write-Host "  ============================================================" -ForegroundColor White
     Write-Host ""
@@ -267,7 +267,7 @@ $winVer = [System.Environment]::OSVersion.Version
 
 Write-Host ""
 Write-Host "  ============================================================" -ForegroundColor White
-Write-Host "    BuddyChat XP  v0.1.0  -  starting up" -ForegroundColor White
+Write-Host "    BuddyChat XP  v0.1.2  -  starting up" -ForegroundColor White
 Write-Host "  ============================================================" -ForegroundColor White
 Write-Host ""
 Write-Host "    OS:        Windows $winVer"

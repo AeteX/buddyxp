@@ -17,7 +17,9 @@ what is in scope and what is out.
 
 | Version | Supported |
 |---------|-----------|
-|  0.1.0  | Yes       |
+|  0.1.2  | Yes       |
+|  0.1.1  | No        |
+|  0.1.0  | No        |
 
 ## In scope
 

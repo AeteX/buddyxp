@@ -171,8 +171,8 @@ XP.setStatusDot = function (id, message, state) {
    4. Branding + About dialog
    ================================================================ */
 
-XP.VERSION = '0.1.0';
-XP.BUILD   = '2025.01.01';
+XP.VERSION = '0.1.2';
+XP.BUILD   = '2026.10.06';
 
 XP.DEFAULT_SYS =
 	'You are "Buddy," a friendly AI assistant running on a Windows XP computer ' +
