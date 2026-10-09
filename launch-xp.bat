@@ -122,7 +122,7 @@ if not "%VERSION%"=="" goto :skip_menu
 cls
 echo.
 echo  ============================================================
-echo    BuddyChat XP  v0.1.2
+echo    BuddyChat XP  v0.1.3
 echo    AeteX Interactive   Est. 2026   -   https://aetex.is-a.dev
 echo  ============================================================
 echo.

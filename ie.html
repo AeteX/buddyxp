@@ -64,8 +64,7 @@ if (!String.prototype.trim) {
 </head>
 <body onload="init();">
 
-<!-- BODY IS IDENTICAL TO index.html. Copy the entire <div id="win"> ... </div> block from there. -->
-
+<!-- BODY IDENTICAL TO index.html. Copy the entire <div id="win"> block from index.html. -->
 <div id="win">
 	<!-- paste the entire #win block from index.html here -->
 </div>
@@ -79,6 +78,25 @@ var state = {
 	xhr: null,
 	curBody: null
 };
+
+function toggleSound() {
+	/* IE8 has no Web Audio API, so sounds never play. The toggle still
+	   works so the label stays consistent with the other pipelines. */
+	var on = !XP.audio.isEnabled();
+	XP.audio.setEnabled(on);
+	var label = XP.$('sound-label');
+	var dot   = XP.$('sound-dot');
+	if (label) { label.innerHTML = on ? 'Sound On' : 'Sound Off'; }
+	if (dot)   { dot.className = on ? 'tbar-dot green' : 'tbar-dot red'; }
+	XP.setStatusDot('status', on ? 'Sound on.' : 'Sound off.', 'ready');
+}
+
+function sendNudge() {
+	XP.audio.playNudge();
+	XP.nudgeWindow();
+	XP.addMessage('log', 'bot', '\u00BB Nudge sent. Wake up!');
+	XP.setStatusDot('status', 'Nudge sent.', 'ready');
+}
 
 function newXHR() {
 	if (window.XMLHttpRequest) { return new XMLHttpRequest(); }
@@ -154,6 +172,7 @@ function loadChat(id) {
 	XP.storage.setCurrent(id);
 	renderConversation();
 	refreshHistory();
+	XP.audio.playDoorOpen();
 	XP.setStatusDot('status', 'Loaded conversation.', 'ready');
 }
 
@@ -162,6 +181,7 @@ function newChat() {
 	state.conv = XP.storage.create();
 	renderConversation();
 	refreshHistory();
+	XP.audio.playDoorOpen();
 	XP.setStatusDot('status', 'New conversation.', 'ready');
 	XP.$('input').focus();
 }
@@ -178,6 +198,7 @@ function deleteCurrentChat() {
 		renderConversation();
 		refreshHistory();
 	}
+	XP.audio.playDoorClose();
 }
 
 function rememberThisChat() {
@@ -190,8 +211,6 @@ function rememberThisChat() {
 		return;
 	}
 
-	/* IE8 can't do authenticated cross-origin requests, so memory
-	   extraction only works against the local server. */
 	if (!XP.isLocal()) {
 		alert('Online providers are not supported in Internet Explorer 8/9.');
 		return;
@@ -317,9 +336,11 @@ function sendMessage() {
 	var url = XP.getEndpoint() + '/chat/completions';
 	var crossOrigin = !sameOrigin(url);
 
+	XP.audio.playSend();
+
 	state.busy = true;
 	state.curBody = XP.addMessage('log', 'bot', '');
-	state.curBody.innerHTML = '<span class="caret">_</span>';
+	XP.showTypingIndicator(state.curBody);
 	XP.updateButtons('sendbtn', 'stopbtn', true);
 	XP.setStatusDot('status', 'Sending...', 'busy');
 	XP.saveSettings();
@@ -408,6 +429,7 @@ function handleFullResponse(rawText, httpStatus) {
 	}
 
 	if (!isError) { finalText = XP.stripEmoji(finalText); }
+	XP.audio.playAimDing();
 
 	if (state.curBody) {
 		state.curBody.innerHTML = isError
@@ -445,6 +467,7 @@ function clearChat() {
 	state.conv.messages = [];
 	persist();
 	renderConversation();
+	XP.audio.playDoorClose();
 	XP.setStatusDot('status', 'Conversation cleared.', 'ready');
 }
 
@@ -513,8 +536,6 @@ function onKeyDown(e) {
 }
 
 function init() {
-	/* IE8/IE9 cannot do authenticated cross-origin requests, so online
-	   providers are hidden. Only Local appears in the dropdown. */
 	XP.populateProviderDropdown(false);
 	XP.loadSettings();
 	XP.bindSettingsInputs();
@@ -523,7 +544,6 @@ function init() {
 	XP.$('provider').onchange = XP.onProviderChange;
 	XP.$('server').onchange   = function () { XP.saveSettings(); testConnection(); };
 
-	/* Show a warning where the online fields would be */
 	var warn = XP.$('key-warning');
 	if (warn) {
 		warn.style.display = '';
@@ -546,6 +566,13 @@ function init() {
 		var target = e.target || e.srcElement;
 		XP.storage.memorySetEnabled(target.checked);
 	};
+
+	if (!XP.audio.isEnabled()) {
+		var sLabel = XP.$('sound-label');
+		var sDot   = XP.$('sound-dot');
+		if (sLabel) { sLabel.innerHTML = 'Sound Off'; }
+		if (sDot)   { sDot.className = 'tbar-dot red'; }
+	}
 
 	XP.updateButtons('sendbtn', 'stopbtn', false);
 	XP.setStatusDot('status', 'Ready.', 'ready');

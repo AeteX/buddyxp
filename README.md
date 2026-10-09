@@ -8,7 +8,8 @@ that works. The default persona is **Buddy**, a friendly 2007-era IM buddy who
 avoids emoji and talks like it is still AIM and MSN Messenger.
 
 Runs against a local `llama serve` instance or any hosted OpenAI-compatible
-API. Conversation history and cross-chat memory are built in.
+API. Conversation history, cross-chat memory, and a proper IM sound kit are
+all built in.
 
 <p align="center">
   <img src="docs/screenshot-xp.png" alt="BuddyChat XP running in Internet Explorer on Windows XP" width="48%">
@@ -20,8 +21,8 @@ API. Conversation history and cross-chat memory are built in.
   <em>Left: the <code>ie.html</code> pipeline in IE8 on Windows XP. Right: the <code>index.html</code> pipeline in a modern browser.</em>
 </p>
 
-[**Documentation page**](https://aetex.is-a.dev/buddyxp) &nbsp;&bull;&nbsp;
-[**Watch the 2005 style TV ad**](https://youtube.com/watch?v=) &nbsp;&bull;&nbsp;
+[**Live landing page**](https://aetex.is-a.dev/buddyxp) &nbsp;&bull;&nbsp;
+[**Watch the fake 2005 TV ad**](https://youtube.com/watch?v=) &nbsp;&bull;&nbsp;
 [**Report a bug**](https://github.com/Aetex/buddyxp/issues) &nbsp;&bull;&nbsp;
 [**MIT License**](LICENSE)
 
@@ -408,6 +409,79 @@ regardless of which model produced it.
 
 ---
 
+## Sounds and effects
+
+BuddyChat XP has a full IM-era sound kit, synthesized on the fly with
+the Web Audio API. No audio files, no external dependencies, no
+licensing questions.
+
+### What plays when
+
+| Event | Sound | Style |
+|---|---|---|
+| First page load | Login chime | MSN-style three-note rising arpeggio (E5 → G5 → C6) |
+| New chat / load chat | Door open | Rising whoosh with a soft click |
+| Clear chat / delete chat | Door close | Falling whoosh with a low thud |
+| Send a message | Send blip | Subtle rising two-tone |
+| First token arrives | AIM ding | Two-tone up (D5 → A5 → D6) with overtones |
+| Nudge button | Nudge buzz | Low-frequency square-wave rumble with vibrato |
+
+### The nudge
+
+The **Nudge** button in the toolbar does what MSN nudges did in 2004 —
+it shakes the whole window and plays a buzzing rumble. In modern browsers
+the shake uses a CSS keyframe animation. In IE8 and IE9 it falls back to
+a JavaScript-driven loop that shifts the window's `margin-left` frame by
+frame, so the effect still works on XP machines.
+
+A "» Nudge sent. Wake up!" line appears in the chat log alongside the
+sound and shake, so the effect is visible even with sound off.
+
+### The typing indicator
+
+While waiting for the model's first token, the bot message slot shows an
+animated AIM-style indicator: a small pencil bobbing back and forth next
+to the text "Buddy is typing" followed by three pulsing dots. As soon as
+the first token arrives, the indicator is replaced by the streamed reply
+and the AIM ding plays.
+
+The pencil is pure CSS — no images. It's built from a triangle for the
+tip, a yellow rectangle for the shaft, and a red rectangle for the
+eraser. The whole thing rotates ±4 degrees on a loop.
+
+### Sound toggle
+
+A **Sound On / Sound Off** button in the toolbar toggles all effects.
+The setting persists across reloads in `localStorage` under the key
+`buddyChatXp.sound`.
+
+Sound is on by default. The button's dot turns green when sound is on
+and red when it's off.
+
+### Autoplay and the first click
+
+Browsers block audio until the user interacts with the page. BuddyChat XP
+handles this by **deferring the login chime** until the first click,
+keypress, or touch. Every sound after that plays immediately.
+
+You won't hear anything until you click somewhere on the page — this is
+a browser policy, not a bug. Once you've clicked once, the login chime
+fires and the sound engine is unlocked for the rest of the session.
+
+### IE8 and IE9
+
+Internet Explorer 8 and 9 don't have the Web Audio API, so all sounds
+are silently skipped. The nudge visual still works via the JavaScript
+fallback, and the typing indicator renders (with static dots — no CSS
+animations in IE8). The Sound toggle still functions so the label
+matches the other pipelines.
+
+If you want sounds in an old browser, you'd need to use Flash or an
+`<embed>` tag pointing at a WAV file, which is a much worse experience
+than silence. The modern pages are the right place for sound.
+
+---
+
 ## Recommended generation settings
 
 Bonsai-8B's own model card suggests the following, which you can enter into
@@ -434,9 +508,9 @@ sensible server-side defaults for the rest.
 |---|---|
 | `index.html` | Modern browsers. `fetch` + `ReadableStream` + `AbortController`. Streams replies. Auto-redirects if the modern pipeline is unavailable. |
 | `legacy.html` | Firefox 3.5+, Chrome 4+, Safari 4+, MyPal/Goanna, IE10/11. `XMLHttpRequest` with `Content-Type: text/plain` (no CORS preflight). Streams via `readyState === 3`. Auto-redirects IE8/9 to `ie.html`. |
-| `ie.html` | IE8 / IE9. Uses `XDomainRequest` for cross-origin POST. No streaming — the reply appears all at once. Online providers are not available in this pipeline. |
-| `xp.css` | Shared XP Luna theme. IE8-safe: no flexbox, no grid, no CSS custom properties. |
-| `xp-common.js` | Shared helpers, emoji filter, settings persistence, conversation history, memory storage, provider layer, About dialog, menu handlers. ES3-only syntax so IE8 can parse it. |
+| `ie.html` | IE8 / IE9. Uses `XDomainRequest` for cross-origin POST. No streaming — the reply appears all at once. Online providers and sounds are not available in this pipeline. |
+| `xp.css` | Shared XP Luna theme. IE8-safe: no flexbox, no grid, no CSS custom properties. Includes the nudge shake keyframes and the typing indicator styles. |
+| `xp-common.js` | Shared helpers, Web Audio sound engine, emoji filter, settings persistence, conversation history, memory storage, provider layer, About dialog, menu handlers. ES3-only syntax so IE8 can parse it. |
 | `launch-node.js` | Tiny static file server used as the Node fallback. Zero npm dependencies. |
 | `launch-python.py` | Static file server with explicit MIME types. Fixes the "webpage cannot be displayed" bug on XP machines where the `.html` registry entry is broken. |
 | `launch.sh` | Linux / macOS launcher. Detects OS and Linux distro, picks Python 3 → Python 2 → Node. |
@@ -495,11 +569,30 @@ streamed chunk and:
 Because it operates on the accumulated reply after every chunk, a surrogate
 pair split across two chunks is still caught correctly.
 
+### Sound synthesis
+
+Every sound is generated from oscillators and white noise at the moment it
+plays — nothing is loaded from a file. The login chime is three sine waves
+stacked with overlapping envelopes. The door sounds are bandpass-filtered
+white noise swept across the frequency range. The nudge is a square wave
+with a low-frequency oscillator modulating its pitch.
+
+This approach means zero bandwidth for the sound kit, no cross-origin
+issues, and no licensing questions. The whole engine is about 150 lines of
+JavaScript.
+
 ### Settings persistence
 
 Server URL, provider, per-provider API keys, per-provider models, temperature,
-max tokens, and system prompt persist in `localStorage` under the key
-`buddyChatXp.settings.v1`. Conversations and memory live under separate keys.
+max tokens, system prompt, sound preference, conversation history, and
+memory facts all persist in `localStorage`. Keys are namespaced:
+
+| Key | Contents |
+|---|---|
+| `buddyChatXp.settings.v1` | Provider, endpoints, keys, model names, temperature, system prompt |
+| `buddyChatXp.conversations.v1` | History of conversations, capped at 100 |
+| `buddyChatXp.memory.v1` | Facts list and enabled flag |
+| `buddyChatXp.sound` | `on` or `off` |
 
 To reset everything, clear site data for the origin.
 
@@ -517,6 +610,7 @@ To reset everything, clear site data for the origin.
 | Temperature | `0.7` | Bonsai-8B suggests `0.5`; most online providers suggest `0.7` |
 | Max tokens | `512` | Upper bound on reply length |
 | System prompt | Buddy persona | Edit or clear in the sidebar |
+| Sound | On | Toggle in the toolbar |
 
 ---
 
@@ -535,6 +629,9 @@ To reset everything, clear site data for the origin.
   works. Run the one-liner, open a new shell, and type `buddyxp`.
 - **Test online providers** — pick Groq from the dropdown. It's free to
   sign up and returns fast responses, so it's the easiest to verify with.
+- **Test the sounds** — click anywhere on the page first (browsers block
+  audio until user interaction), then click **Nudge** in the toolbar. You
+  should hear a buzz and see the window shake.
 
 ---
 

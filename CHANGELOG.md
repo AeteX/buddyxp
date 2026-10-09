@@ -3,6 +3,42 @@
 All notable changes to BuddyChat XP are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] — 2026-10-09
+
+### Added
+- Full IM-era sound kit, synthesized on the fly with the Web Audio API.
+  No external audio files, no licensing questions, no bandwidth cost
+- MSN-style login chime (E5 → G5 → C6 rising arpeggio) that plays on
+  first user interaction
+- Nudge button in the toolbar that shakes the whole app window and plays
+  a low-frequency buzzing rumble. Falls back to a JavaScript-driven shake
+  loop on IE8/IE9 where CSS keyframe animations aren't supported
+- Door open whoosh when starting or loading a conversation
+- Door close whoosh when clearing or deleting a conversation
+- Subtle rising two-tone blip when sending a message
+- AIM-style two-tone ding (D5 → A5 → D6) when the first token arrives
+- AIM-style typing indicator with an animated pencil bobbing next to
+  "Buddy is typing" and three pulsing dots. Replaced by the streamed
+  reply as soon as the first token arrives
+- Sound On / Sound Off toggle in the toolbar. Setting persists across
+  reloads in `localStorage` under `buddyChatXp.sound`
+- Autoplay policy handling: the login chime is deferred until the first
+  user gesture if the audio context is still suspended
+
+### Changed
+- Toolbar now has six buttons: New Chat, Nudge, Test Connection, About,
+  Help, and Sound toggle
+- Version bumped to 0.1.3 in the About dialog, status bar, sidebar
+  product mark, and README
+
+### Notes
+- IE8 and IE9 silently skip all sounds since they lack the Web Audio API.
+  The nudge visual, typing indicator, and sound toggle still function so
+  the UI is consistent across pipelines.
+- Every sound is generated from oscillators and white noise at the moment
+  it plays. The whole audio engine is about 150 lines of JavaScript with
+  no dependencies.
+
 ## [0.1.2] — 2026-10-06
 
 ### Added

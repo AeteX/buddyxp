@@ -55,11 +55,249 @@ XP.newXHR = function () {
 };
 
 /* ================================================================
+   1b. Sound engine + visual effects
+   ================================================================ */
+
+XP.audio = (function () {
+	var ctx = null;
+	var enabled = true;
+	var pendingLogin = false;
+
+	try {
+		enabled = localStorage.getItem('buddyChatXp.sound') !== 'off';
+	} catch (e) {}
+
+	function ensure() {
+		if (ctx) { return ctx; }
+		var C = window.AudioContext || window.webkitAudioContext;
+		if (!C) { return null; }
+		try { ctx = new C(); } catch (e) { ctx = null; }
+		return ctx;
+	}
+
+	function resume() {
+		var c = ensure();
+		if (!c) { return; }
+		if (c.state === 'suspended' && c.resume) {
+			try { c.resume(); } catch (e) {}
+		}
+	}
+
+	/* Auto-resume on the first user gesture. */
+	if (typeof document !== 'undefined') {
+		var resumeEvents = ['click', 'keydown', 'touchstart'];
+		var resumeHandler = function () {
+			resume();
+			if (pendingLogin) {
+				pendingLogin = false;
+				setTimeout(playLoginSound, 60);
+			}
+			for (var i = 0; i < resumeEvents.length; i++) {
+				if (document.removeEventListener) {
+					document.removeEventListener(resumeEvents[i], resumeHandler, true);
+				} else if (document.detachEvent) {
+					document.detachEvent('on' + resumeEvents[i], resumeHandler);
+				}
+			}
+		};
+		for (var i = 0; i < resumeEvents.length; i++) {
+			if (document.addEventListener) {
+				document.addEventListener(resumeEvents[i], resumeHandler, true);
+			} else if (document.attachEvent) {
+				document.attachEvent('on' + resumeEvents[i], resumeHandler);
+			}
+		}
+	}
+
+	function tone(freq, startOffset, dur, type, gainPeak, freqEnd) {
+		var c = ensure();
+		if (!c) { return; }
+		var t = c.currentTime + startOffset;
+		var osc = c.createOscillator();
+		var g = c.createGain();
+		osc.type = type || 'sine';
+		osc.frequency.setValueAtTime(freq, t);
+		if (freqEnd) {
+			osc.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+		}
+		g.gain.setValueAtTime(0.0001, t);
+		g.gain.linearRampToValueAtTime(gainPeak || 0.14, t + 0.012);
+		g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+		osc.connect(g);
+		g.connect(c.destination);
+		osc.start(t);
+		osc.stop(t + dur + 0.05);
+	}
+
+	function noise(startOffset, dur, f1, f2, gainPeak) {
+		var c = ensure();
+		if (!c) { return; }
+		var t = c.currentTime + startOffset;
+		var len = Math.floor(c.sampleRate * dur);
+		var buf = c.createBuffer(1, len, c.sampleRate);
+		var data = buf.getChannelData(0);
+		for (var i = 0; i < len; i++) { data[i] = Math.random() * 2 - 1; }
+		var src = c.createBufferSource();
+		src.buffer = buf;
+		var filt = c.createBiquadFilter();
+		filt.type = 'bandpass';
+		filt.frequency.setValueAtTime(f1, t);
+		filt.frequency.exponentialRampToValueAtTime(f2, t + dur);
+		filt.Q.value = 1.6;
+		var g = c.createGain();
+		g.gain.setValueAtTime(0.0001, t);
+		g.gain.linearRampToValueAtTime(gainPeak || 0.09, t + 0.02);
+		g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+		src.connect(filt);
+		filt.connect(g);
+		g.connect(c.destination);
+		src.start(t);
+		src.stop(t + dur + 0.05);
+	}
+
+	function playLoginSound() {
+		/* MSN-style three-note rising chime: E5 -> G5 -> C6 */
+		tone(659.25, 0.00, 0.14, 'sine', 0.16);
+		tone(783.99, 0.11, 0.14, 'sine', 0.16);
+		tone(1046.50, 0.22, 0.30, 'sine', 0.18);
+		tone(1568.0, 0.24, 0.32, 'sine', 0.06);
+	}
+
+	function playDoorOpenSound() {
+		noise(0, 0.30, 220, 2200, 0.08);
+		tone(500, 0.02, 0.05, 'triangle', 0.05);
+	}
+
+	function playDoorCloseSound() {
+		noise(0, 0.22, 2200, 220, 0.07);
+		tone(180, 0.14, 0.20, 'sine', 0.14, 80);
+	}
+
+	function playSendSound() {
+		tone(880,    0.00, 0.07, 'sine', 0.09);
+		tone(1174.66, 0.06, 0.12, 'sine', 0.08);
+	}
+
+	function playAimDingSound() {
+		tone(587.33,  0.00, 0.35, 'sine', 0.14);
+		tone(880.00,  0.00, 0.30, 'sine', 0.09);
+		tone(1174.66, 0.05, 0.40, 'sine', 0.10);
+	}
+
+	function playNudgeSound() {
+		var c = ensure();
+		if (!c) { return; }
+		var t = c.currentTime;
+		var dur = 0.55;
+		var osc = c.createOscillator();
+		var g = c.createGain();
+		var lfo = c.createOscillator();
+		var lfoGain = c.createGain();
+		osc.type = 'square';
+		osc.frequency.setValueAtTime(95, t);
+		osc.frequency.linearRampToValueAtTime(65, t + dur);
+		lfo.type = 'sine';
+		lfo.frequency.setValueAtTime(26, t);
+		lfoGain.gain.value = 38;
+		lfo.connect(lfoGain);
+		lfoGain.connect(osc.frequency);
+		g.gain.setValueAtTime(0.0001, t);
+		g.gain.linearRampToValueAtTime(0.14, t + 0.015);
+		g.gain.setValueAtTime(0.14, t + dur - 0.12);
+		g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+		osc.connect(g);
+		g.connect(c.destination);
+		osc.start(t);
+		lfo.start(t);
+		osc.stop(t + dur + 0.05);
+		lfo.stop(t + dur + 0.05);
+	}
+
+	return {
+		isAvailable: function () { return !!ensure(); },
+		isEnabled:   function () { return enabled; },
+
+		setEnabled: function (on) {
+			enabled = !!on;
+			try {
+				localStorage.setItem('buddyChatXp.sound', on ? 'on' : 'off');
+			} catch (e) {}
+		},
+
+		playLoginWhenReady: function () {
+			if (!enabled) { return; }
+			var c = ensure();
+			if (c && c.state === 'running') {
+				playLoginSound();
+			} else {
+				pendingLogin = true;
+			}
+		},
+
+		playLogin:      function () { if (enabled) { playLoginSound(); } },
+		playDoorOpen:   function () { if (enabled) { playDoorOpenSound(); } },
+		playDoorClose:  function () { if (enabled) { playDoorCloseSound(); } },
+		playSend:       function () { if (enabled) { playSendSound(); } },
+		playAimDing:    function () { if (enabled) { playAimDingSound(); } },
+		playNudge:      function () { if (enabled) { playNudgeSound(); } }
+	};
+})();
+
+/* ---------- visual: window nudge shake ---------- */
+
+XP.nudgeWindow = function () {
+	var w = XP.$('win');
+	if (!w) { return; }
+
+	/* Modern browsers: CSS keyframe animation */
+	if (typeof document.documentElement.style.animation !== 'undefined' ||
+	    typeof document.documentElement.style.WebkitAnimation !== 'undefined') {
+		w.className = w.className.replace(/\s*nudge\b/g, '');
+		void w.offsetWidth;
+		w.className += ' nudge';
+		setTimeout(function () {
+			w.className = w.className.replace(/\s*nudge\b/g, '');
+		}, 1000);
+		return;
+	}
+
+	/* IE8/IE9 fallback: JavaScript-driven shake */
+	var origMargin = w.style.marginLeft || '';
+	var offsets = [-8, 7, -6, 6, -7, 5, -4, 5, -3, 0];
+	var i = 0;
+	var step = function () {
+		if (i >= offsets.length) {
+			w.style.marginLeft = origMargin;
+			return;
+		}
+		w.style.marginLeft = offsets[i] + 'px';
+		i++;
+		setTimeout(step, 80);
+	};
+	step();
+};
+
+/* ---------- typing indicator ---------- */
+
+XP.showTypingIndicator = function (bodyEl) {
+	if (!bodyEl) { return; }
+	bodyEl.innerHTML =
+		'<span class="typing-indicator">' +
+			'<span class="typing-pencil">' +
+				'<i class="pencil-eraser"></i>' +
+				'<i class="pencil-shaft"></i>' +
+				'<i class="pencil-tip"></i>' +
+			'</span>' +
+			'Buddy is typing' +
+			'<span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>' +
+		'</span>';
+};
+
+/* ================================================================
    2. Emoji filter
    ================================================================ */
 
 XP.EMOJI_MAP = [
-	/* smiley faces */
 	['\uD83D\uDE00',':D'], ['\uD83D\uDE01',':D'], ['\uD83D\uDE02',':D'],
 	['\uD83D\uDE03',':D'], ['\uD83D\uDE04',':D'], ['\uD83D\uDE05',';)'],
 	['\uD83D\uDE06',':D'], ['\uD83D\uDE07',':)'], ['\uD83D\uDE08','>:)'],
@@ -79,12 +317,10 @@ XP.EMOJI_MAP = [
 	['\uD83D\uDE30',':o'], ['\uD83D\uDE31',':o'], ['\uD83D\uDE32',':o'],
 	['\uD83D\uDE33',':S'], ['\uD83D\uDE34',':|'], ['\uD83D\uDE35',':|'],
 	['\uD83D\uDE36',':S'], ['\uD83D\uDE37',':-|'],
-	/* cats */
 	['\uD83D\uDE38','8)'], ['\uD83D\uDE39','8)'], ['\uD83D\uDE3A',':)'],
 	['\uD83D\uDE3B',':)'], ['\uD83D\uDE3C',';)'], ['\uD83D\uDE3D',':P'],
 	['\uD83D\uDE3E',':('], ['\uD83D\uDE3F',':('], ['\uD83D\uDE40','>:('],
 	['\uD83D\uDE44','>:-('], ['\uD83D\uDE45','>:-('],
-	/* gestures */
 	['\uD83D\uDE46','O:)'], ['\uD83D\uDE47','O:)'],
 	['\uD83D\uDE48',':-X'], ['\uD83D\uDE49',':-X'], ['\uD83D\uDE4A',':-X'],
 	['\uD83D\uDE4B','o/'], ['\uD83D\uDE4C','\\o/'], ['\uD83D\uDE4D','o/'],
@@ -95,7 +331,6 @@ XP.EMOJI_MAP = [
 	['\uD83D\uDC49','>'], ['\uD83D\uDC4A','(y)'], ['\uD83D\uDC4B','o/'],
 	['\uD83D\uDC4C','ok'], ['\uD83D\uDC4D','(y)'], ['\uD83D\uDC4E','(n)'],
 	['\uD83D\uDC4F','\\o/'], ['\uD83D\uDC50','\\o/'], ['\uD83D\uDC51','^_^'],
-	/* hearts & misc */
 	['\u2764\uFE0F','<3'], ['\u2764','<3'], ['\uD83D\uDC94','</3'],
 	['\uD83D\uDC95','<3'], ['\uD83D\uDC96','<3'], ['\uD83D\uDC97','<3'],
 	['\uD83D\uDC98','<3'], ['\uD83D\uDC99','<3'], ['\uD83D\uDC9A','<3'],
@@ -110,7 +345,6 @@ XP.EMOJI_MAP = [
 	['\u2B50','*'], ['\u2600\uFE0F','o/'], ['\u2600','o/'],
 	['\u26A1','!'], ['\u2615','c[_]'], ['\uD83C\uDF55','pizza'],
 	['\uD83C\uDF54','burger'], ['\uD83C\uDF7A','beer'], ['\uD83C\uDF7B','beer'],
-	/* marks */
 	['\u2705','[ok]'], ['\u274C','[x]'], ['\u274E','[x]'],
 	['\u2757','!'], ['\u2753','?'], ['\u2049','?!'], ['\u203C','!!'],
 	['\u2714\uFE0F','[ok]'], ['\u2714','[ok]'],
@@ -171,7 +405,7 @@ XP.setStatusDot = function (id, message, state) {
    4. Branding + About dialog
    ================================================================ */
 
-XP.VERSION = '0.1.2';
+XP.VERSION = '0.1.3';
 XP.BUILD   = '2026.10.06';
 
 XP.DEFAULT_SYS =
@@ -247,7 +481,7 @@ XP.initAbout = function () {
 
 XP.menuFile = function () {
 	alert('Nothing here yet. This is a web page, not a real Windows app. ;)\n\n' +
-	      'Try the toolbar just below for New Chat, Test Connection, and About.');
+	      'Try the toolbar just below for New Chat, Nudge, Test Connection, and About.');
 };
 
 XP.menuEdit = function () {
@@ -266,6 +500,12 @@ XP.menuHelp = function () {
 	      '  1. Start llama serve with a model, or pick an online provider.\n' +
 	      '  2. Click Test Connection to verify.\n' +
 	      '  3. Type a message below and press Enter.\n\n' +
+	      'Toolbar:\n' +
+	      '  New Chat         Start a fresh conversation\n' +
+	      '  Nudge            Shake the window (MSN-style)\n' +
+	      '  Test Connection  Verify the server\n' +
+	      '  About            Version info\n' +
+	      '  Sound On/Off     Toggle sound effects\n\n' +
 	      'Keyboard shortcuts:\n' +
 	      '  Enter        Send message\n' +
 	      '  Shift+Enter  Insert new line\n' +
@@ -373,7 +613,6 @@ XP.onProviderChange = function () {
 XP.requestHeaders = function () {
 	var headers = {};
 	if (XP.isLocal()) {
-		/* CORS-safelisted, avoids an OPTIONS preflight */
 		headers['Content-Type'] = 'text/plain;charset=UTF-8';
 	} else {
 		headers['Content-Type'] = 'application/json';
@@ -398,7 +637,6 @@ XP.loadSettings = function () {
 	if (!s) { s = {}; }
 	XP._settings = s;
 
-	/* Migrate the old v1 shape (single `server` field) to per-provider storage. */
 	if (s.server && !s.localServer) { s.localServer = s.server; }
 	if (!s.localServer) { s.localServer = 'http://localhost:8080/v1'; }
 	if (!s.keys)   { s.keys   = {}; }
@@ -515,8 +753,6 @@ XP.formatTimeAgo = function (ms) {
 
 XP.storage = {
 
-	/* ---------- low-level ---------- */
-
 	_read: function (key, dflt) {
 		try {
 			var raw = localStorage.getItem(key);
@@ -537,8 +773,6 @@ XP.storage = {
 			}
 		}
 	},
-
-	/* ---------- conversations ---------- */
 
 	_blob: function () {
 		var b = XP.storage._read(XP.CONV_KEY, null);
@@ -625,8 +859,6 @@ XP.storage = {
 		});
 		b.conversations = b.conversations.slice(0, 100);
 	},
-
-	/* ---------- memory ---------- */
 
 	memory: function () {
 		var m = XP.storage._read(XP.MEM_KEY, null);

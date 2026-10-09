@@ -753,3 +753,101 @@ input[type="password"].xinput {
 	border-color: #8cc68c;
 	color: #1a6b1a;
 }
+
+/* ================= nudge shake ================= */
+
+#win.nudge {
+	animation: nudgeShake 0.9s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+@keyframes nudgeShake {
+	0%, 100% { transform: translate(0, 0) rotate(0deg); }
+	10%      { transform: translate(-8px, 5px) rotate(-0.6deg); }
+	20%      { transform: translate(7px, -4px) rotate(0.5deg); }
+	30%      { transform: translate(-6px, -5px) rotate(-0.4deg); }
+	40%      { transform: translate(6px, 5px) rotate(0.4deg); }
+	50%      { transform: translate(-7px, -3px) rotate(-0.3deg); }
+	60%      { transform: translate(5px, 4px) rotate(0.3deg); }
+	70%      { transform: translate(-4px, -4px) rotate(-0.2deg); }
+	80%      { transform: translate(5px, 2px) rotate(0.2deg); }
+	90%      { transform: translate(-3px, -4px) rotate(-0.1deg); }
+}
+
+/* ================= typing indicator ================= */
+
+.typing-indicator {
+	display: inline-flex;
+	align-items: center;
+	color: #666;
+	font-style: italic;
+	font-size: 11px;
+	line-height: 16px;
+	padding: 2px 0;
+}
+
+.typing-pencil {
+	display: inline-block;
+	position: relative;
+	width: 12px;
+	height: 12px;
+	vertical-align: -1px;
+	margin-right: 6px;
+	animation: pencilWrite 0.55s ease-in-out infinite alternate;
+	transform-origin: 50% 100%;
+}
+
+.typing-pencil i {
+	display: block;
+	position: absolute;
+	font-style: normal;
+}
+
+.typing-pencil .pencil-tip {
+	left: 2px; top: 8px;
+	width: 0; height: 0;
+	border-left: 3px solid transparent;
+	border-right: 3px solid transparent;
+	border-top: 4px solid #1a1a1a;
+}
+
+.typing-pencil .pencil-shaft {
+	left: 3px; top: 1px;
+	width: 4px; height: 7px;
+	background: #ffcc33;
+	border: 1px solid #7a5c00;
+}
+
+.typing-pencil .pencil-eraser {
+	left: 2px; top: 0;
+	width: 6px; height: 2px;
+	background: #c5341a;
+	border: 1px solid #7a1f10;
+}
+
+@keyframes pencilWrite {
+	0%   { transform: rotate(-22deg); }
+	100% { transform: rotate(-14deg); }
+}
+
+.typing-dots {
+	display: inline-block;
+	min-width: 16px;
+	text-align: left;
+	letter-spacing: 1px;
+	color: #666;
+}
+
+.typing-dots span {
+	display: inline-block;
+	animation: dotPulse 1.4s infinite;
+	opacity: 0;
+}
+
+.typing-dots span:nth-child(2) { animation-delay: 0.25s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.5s; }
+
+@keyframes dotPulse {
+	0%, 15%   { opacity: 0; transform: translateY(0); }
+	35%, 65%  { opacity: 1; transform: translateY(-1px); }
+	85%, 100% { opacity: 0; transform: translateY(0); }
+}

@@ -27,7 +27,7 @@ try {
     # Old .NET, no TLS 1.2 support. Invoke-WebRequest will still try its best.
 }
 
-$Version    = '0.1.2'
+$Version    = '0.1.3'
 $Repo       = 'Aetex/buddyxp'
 $InstallDir = Join-Path $env:LOCALAPPDATA 'BuddyXP'
 $BinDir     = Join-Path $InstallDir 'bin'

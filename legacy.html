@@ -19,8 +19,7 @@ if (document.documentMode && document.documentMode < 10) {
 </head>
 <body onload="init();">
 
-<!-- BODY IS IDENTICAL TO index.html. Copy the entire <div id="win"> ... </div> block from there. -->
-
+<!-- BODY IDENTICAL TO index.html. Copy the entire <div id="win"> block from index.html. -->
 <div id="win">
 	<!-- paste the entire #win block from index.html here -->
 </div>
@@ -33,8 +32,27 @@ var state = {
 	xhr: null,
 	curBody: null,
 	acc: '',
-	buf: ''
+	buf: '',
+	firstToken: false
 };
+
+function toggleSound() {
+	var on = !XP.audio.isEnabled();
+	XP.audio.setEnabled(on);
+	var label = XP.$('sound-label');
+	var dot   = XP.$('sound-dot');
+	if (label) { label.innerHTML = on ? 'Sound On' : 'Sound Off'; }
+	if (dot)   { dot.className = on ? 'tbar-dot green' : 'tbar-dot red'; }
+	if (on) { XP.audio.playLogin(); }
+	XP.setStatusDot('status', on ? 'Sound on.' : 'Sound off.', 'ready');
+}
+
+function sendNudge() {
+	XP.audio.playNudge();
+	XP.nudgeWindow();
+	XP.addMessage('log', 'bot', '\u00BB Nudge sent. Wake up!');
+	XP.setStatusDot('status', 'Nudge sent.', 'ready');
+}
 
 function paintStream() {
 	if (!state.curBody) { return; }
@@ -64,6 +82,10 @@ function handleSseLine(line) {
 	} catch (e) {}
 	if (!delta) { return; }
 
+	if (!state.firstToken) {
+		state.firstToken = true;
+		XP.audio.playAimDing();
+	}
 	state.acc = XP.stripEmoji(state.acc + delta);
 	paintStream();
 }
@@ -137,6 +159,7 @@ function loadChat(id) {
 	XP.storage.setCurrent(id);
 	renderConversation();
 	refreshHistory();
+	XP.audio.playDoorOpen();
 	XP.setStatusDot('status', 'Loaded conversation.', 'ready');
 }
 
@@ -145,6 +168,7 @@ function newChat() {
 	state.conv = XP.storage.create();
 	renderConversation();
 	refreshHistory();
+	XP.audio.playDoorOpen();
 	XP.setStatusDot('status', 'New conversation.', 'ready');
 	XP.$('input').focus();
 }
@@ -161,6 +185,7 @@ function deleteCurrentChat() {
 		renderConversation();
 		refreshHistory();
 	}
+	XP.audio.playDoorClose();
 }
 
 function rememberThisChat() {
@@ -282,11 +307,14 @@ function sendMessage() {
 		if (mm) { payload.model = mm; }
 	}
 
+	XP.audio.playSend();
+
 	state.busy = true;
 	state.acc = '';
 	state.buf = '';
+	state.firstToken = false;
 	state.curBody = XP.addMessage('log', 'bot', '');
-	paintStream();
+	XP.showTypingIndicator(state.curBody);
 	XP.updateButtons('sendbtn', 'stopbtn', true);
 	XP.setStatusDot('status', 'Sending...', 'busy');
 	XP.saveSettings();
@@ -373,6 +401,7 @@ function onDone(req) {
 	state.curBody = null;
 	state.acc = '';
 	state.buf = '';
+	state.firstToken = false;
 }
 
 function finishWithError(msg) {
@@ -404,6 +433,7 @@ function stopMessage() {
 	}
 	state.acc = '';
 	state.buf = '';
+	state.firstToken = false;
 	XP.updateButtons('sendbtn', 'stopbtn', false);
 	XP.setStatusDot('status', 'Stopped.', 'ready');
 }
@@ -414,6 +444,7 @@ function clearChat() {
 	state.conv.messages = [];
 	persist();
 	renderConversation();
+	XP.audio.playDoorClose();
 	XP.setStatusDot('status', 'Conversation cleared.', 'ready');
 }
 
@@ -519,6 +550,15 @@ function init() {
 		var target = e.target || e.srcElement;
 		XP.storage.memorySetEnabled(target.checked);
 	};
+
+	if (!XP.audio.isEnabled()) {
+		var sLabel = XP.$('sound-label');
+		var sDot   = XP.$('sound-dot');
+		if (sLabel) { sLabel.innerHTML = 'Sound Off'; }
+		if (sDot)   { sDot.className = 'tbar-dot red'; }
+	}
+
+	XP.audio.playLoginWhenReady();
 
 	XP.updateButtons('sendbtn', 'stopbtn', false);
 	XP.setStatusDot('status', 'Ready.', 'ready');

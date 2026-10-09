@@ -48,6 +48,9 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 		<button type="button" class="tbar-btn" onclick="newChat();" title="Start a new conversation">
 			<span class="tbar-dot blue"></span>New Chat
 		</button>
+		<button type="button" class="tbar-btn" onclick="sendNudge();" title="Shake the window (MSN-style nudge)">
+			<span class="tbar-dot red"></span>Nudge
+		</button>
 		<span class="tbar-sep"></span>
 		<button type="button" class="tbar-btn" onclick="testConnection();" title="Ping the model server">
 			<span class="tbar-dot green"></span>Test Connection
@@ -56,9 +59,12 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 		<button type="button" class="tbar-btn" onclick="XP.showAbout();" title="About BuddyChat XP">
 			<span class="tbar-dot gold"></span>About
 		</button>
-		<span class="tbar-sep"></span>
 		<button type="button" class="tbar-btn" onclick="XP.menuHelp();" title="Keyboard shortcuts and quick start">
 			<span class="tbar-dot red"></span>Help
+		</button>
+		<span class="tbar-sep"></span>
+		<button type="button" class="tbar-btn" id="sound-toggle" onclick="toggleSound();" title="Toggle sound effects">
+			<span class="tbar-dot green" id="sound-dot"></span><span id="sound-label">Sound On</span>
 		</button>
 	</div>
 
@@ -165,7 +171,7 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 					<div class="productmark">
 						<span class="pm-powered">Powered by</span>
 						<span class="aetex-sigil"><span class="aetex-sigil-a">A</span>ete<span class="aetex-sigil-x">X</span></span>
-						<span class="pm-version">v0.1.2 &bull; Est. 2025</span>
+						<span class="pm-version">v0.1.3 &bull; Est. 2025</span>
 					</div>
 
 				</td>
@@ -178,7 +184,7 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 			<tr>
 				<td class="statuscell" width="50%"><span id="status">Ready</span></td>
 				<td class="statuscell" width="25%">Model: <span id="modelinfo-status">&mdash;</span></td>
-				<td class="statuscell" width="25%" align="right">v0.1.2 &nbsp;|&nbsp; &copy; 2025 AeteX Interactive</td>
+				<td class="statuscell" width="25%" align="right">v0.1.3 &nbsp;|&nbsp; &copy; 2025 AeteX Interactive</td>
 			</tr>
 		</table>
 	</div>
@@ -203,7 +209,7 @@ if (!window.fetch || !window.AbortController || !window.ReadableStream || !windo
 			</div>
 			<div class="about-product">
 				<div class="about-product-name">BuddyChat XP</div>
-				<div class="about-version">Version 0.1.2 &nbsp;&bull;&nbsp; Est. 2025</div>
+				<div class="about-version">Version 0.1.3 &nbsp;&bull;&nbsp; Est. 2025</div>
 			</div>
 			<div class="about-divider"></div>
 			<div class="about-copyright">
@@ -247,8 +253,31 @@ var state = {
 	busy: false,
 	controller: null,
 	curBody: null,
-	acc: ''
+	acc: '',
+	firstToken: false
 };
+
+/* ---------- sound + nudge helpers ---------- */
+
+function toggleSound() {
+	var on = !XP.audio.isEnabled();
+	XP.audio.setEnabled(on);
+	var label = XP.$('sound-label');
+	var dot   = XP.$('sound-dot');
+	if (label) { label.innerHTML = on ? 'Sound On' : 'Sound Off'; }
+	if (dot)   { dot.className = on ? 'tbar-dot green' : 'tbar-dot red'; }
+	if (on) { XP.audio.playLogin(); }
+	XP.setStatusDot('status', on ? 'Sound on.' : 'Sound off.', 'ready');
+}
+
+function sendNudge() {
+	XP.audio.playNudge();
+	XP.nudgeWindow();
+	XP.addMessage('log', 'bot', '\u00BB Nudge sent. Wake up!');
+	XP.setStatusDot('status', 'Nudge sent.', 'ready');
+}
+
+/* ---------- SSE parsing ---------- */
 
 function processLine(line) {
 	line = line.replace(/\r$/, '');
@@ -267,6 +296,10 @@ function processLine(line) {
 	}
 	if (!delta) { return; }
 
+	if (!state.firstToken) {
+		state.firstToken = true;
+		XP.audio.playAimDing();
+	}
 	state.acc = XP.stripEmoji(state.acc + delta);
 	paintStream();
 }
@@ -277,6 +310,8 @@ function paintStream() {
 	var log = XP.$('log');
 	log.scrollTop = log.scrollHeight;
 }
+
+/* ---------- conversation rendering ---------- */
 
 function renderConversation() {
 	var log = XP.$('log');
@@ -330,6 +365,8 @@ function refreshMemory() {
 	XP.$('memory-enabled').checked = m.enabled;
 }
 
+/* ---------- conversation actions ---------- */
+
 function loadChat(id) {
 	if (state.busy) { stopMessage(); }
 	var c = XP.storage.get(id);
@@ -338,6 +375,7 @@ function loadChat(id) {
 	XP.storage.setCurrent(id);
 	renderConversation();
 	refreshHistory();
+	XP.audio.playDoorOpen();
 	XP.setStatusDot('status', 'Loaded conversation.', 'ready');
 }
 
@@ -346,6 +384,7 @@ function newChat() {
 	state.conv = XP.storage.create();
 	renderConversation();
 	refreshHistory();
+	XP.audio.playDoorOpen();
 	XP.setStatusDot('status', 'New conversation.', 'ready');
 	XP.$('input').focus();
 }
@@ -362,7 +401,10 @@ function deleteCurrentChat() {
 		renderConversation();
 		refreshHistory();
 	}
+	XP.audio.playDoorClose();
 }
+
+/* ---------- memory ---------- */
 
 function rememberThisChat() {
 	if (!state.conv || state.conv.messages.length < 2) {
@@ -441,6 +483,8 @@ function forgetAll() {
 	XP.setStatusDot('status', 'Memory cleared.', 'ready');
 }
 
+/* ---------- send ---------- */
+
 async function sendMessage() {
 	if (state.busy) { return; }
 	if (!state.conv) { state.conv = XP.storage.create(); }
@@ -471,16 +515,18 @@ async function sendMessage() {
 		max_tokens: XP.intOr(XP.$('maxtok').value, 512)
 	};
 
-	/* Online providers may require a model name in the payload */
 	if (!XP.isLocal()) {
 		var m = XP.getModelName();
 		if (m) { payload.model = m; }
 	}
 
+	XP.audio.playSend();
+
 	state.busy = true;
 	state.acc = '';
+	state.firstToken = false;
 	state.curBody = XP.addMessage('log', 'bot', '');
-	paintStream();
+	XP.showTypingIndicator(state.curBody);
 	XP.updateButtons('sendbtn', 'stopbtn', true);
 	XP.setStatusDot('status', 'Sending...', 'busy');
 	XP.saveSettings();
@@ -542,6 +588,7 @@ async function sendMessage() {
 		}
 		state.curBody = null;
 		state.acc = '';
+		state.firstToken = false;
 	}
 }
 
@@ -571,6 +618,7 @@ function clearChat() {
 	state.conv.messages = [];
 	persist();
 	renderConversation();
+	XP.audio.playDoorClose();
 	XP.setStatusDot('status', 'Conversation cleared.', 'ready');
 }
 
@@ -644,6 +692,15 @@ function init() {
 		var target = e.target || e.srcElement;
 		XP.storage.memorySetEnabled(target.checked);
 	};
+
+	if (!XP.audio.isEnabled()) {
+		var sLabel = XP.$('sound-label');
+		var sDot   = XP.$('sound-dot');
+		if (sLabel) { sLabel.innerHTML = 'Sound Off'; }
+		if (sDot)   { sDot.className = 'tbar-dot red'; }
+	}
+
+	XP.audio.playLoginWhenReady();
 
 	XP.updateButtons('sendbtn', 'stopbtn', false);
 	XP.setStatusDot('status', 'Ready.', 'ready');
